@@ -342,6 +342,9 @@
       </div>
     </div>
 
+    <div class="section-title">🚨 Exit-Signale</div>
+    <div id="exit-signals-container"></div>
+
     <div class="section-title">📊 Offene Positionen</div>
     <div id="positions-container"></div>
   </div>
@@ -641,10 +644,15 @@ async function executePaperTrade(signal, investAmount) {
 // ── Portfolio ─────────────────────────────────────────────────────────────────
 async function loadPortfolio() {
   try {
-    const res = await fetch(`${API}/api/portfolio`);
-    const data = await res.json();
+    const [portRes, exitRes] = await Promise.all([
+      fetch(`${API}/api/portfolio`),
+      fetch(`${API}/api/exit-signals`)
+    ]);
+    const data = await portRes.json();
+    const exitData = await exitRes.json();
     portfolio = data;
     renderPortfolio(data);
+    renderExitSignals(exitData.exit_signals || []);
     renderHistory(data);
   } catch(e) {}
 }
@@ -719,7 +727,42 @@ function renderPortfolio(data) {
   }).join('');
 }
 
-function renderHistory(data) {
+function renderExitSignals(signals) {
+  const c = document.getElementById('exit-signals-container');
+  if (!signals || signals.length === 0) {
+    c.innerHTML = '<div style="font-size:12px;color:#555;padding:8px 0 16px;">Keine Exit-Signale für offene Positionen.</div>';
+    return;
+  }
+  c.innerHTML = signals.map(s => {
+    const color = s.urgency === 'urgent' ? '#ef4444' : s.urgency === 'warn' ? '#f0b429' : '#888';
+    const icon = s.urgency === 'urgent' ? '🛑' : s.urgency === 'warn' ? '⚠️' : 'ℹ️';
+    const pnlColor = s.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)';
+    return `
+    <div style="background:var(--surface2);border:1px solid ${color};border-radius:12px;padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;">${icon} ${s.name}</div>
+          <div style="font-size:11px;color:#888;">${s.direction} · Einstieg: ${s.entry_price}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:monospace;font-weight:700;color:${pnlColor};">
+            ${s.pnl_pct >= 0 ? '+' : ''}${s.pnl_pct}%
+          </div>
+          <div style="font-size:11px;color:#888;">Aktuell: ${s.current_price}</div>
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        ${s.exit_reasons.map(r => `<div style="font-size:12px;color:${color};margin-bottom:3px;">${r}</div>`).join('')}
+      </div>
+      <button class="btn" style="width:100%;background:${color};color:white;"
+        onclick="closePositionPrompt('${s.trade_id}', ${s.current_price})">
+        ${s.recommendation}: Position schließen (${s.current_price}€)
+      </button>
+    </div>`;
+  }).join('');
+}
+
+
   const closed = data.portfolio?.closed_trades || [];
   const c = document.getElementById('history-container');
   if (closed.length === 0) {
@@ -807,4 +850,4 @@ document.getElementById('toggle-paper').classList.toggle('on', !!settings.paper)
 document.getElementById('toggle-push').classList.toggle('on', !!settings.push);
 </script>
 </body>
-</html>
+                                                                              </html>
