@@ -256,3 +256,126 @@ def manifest():
     if mf_path.exists():
         return JSONResponse(json.loads(mf_path.read_text()))
     return JSONResponse({})
+
+
+# ── Exit Signal Analysis ──────────────────────────────────────────────────────
+def check_exit_signal(pos: dict) -> dict | None:
+    """
+    Analyse ob eine offene Position geschlossen werden sollte.
+    Gibt ein Exit-Signal zurück wenn Indikatoren gegen die Position drehen.
+    """
+    try:
+        ticker = pos["ticker"]
+        direction = pos["direction"]
+        entry = pos["entry_price"]
+        sl = pos["stop_loss"]
+        tp = pos["take_profit"]
+
+        df = yf.download(ticker, period="1mo", interval="1d", progress=False, auto_adjust=True)
+        if df is None or df.empty or len(df) < 15:
+            return None
+        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        c = df["Close"].squeeze()
+        h = df["High"].squeeze()
+        l = df["Low"].squeeze()
+
+        current_price = float(c.iloc[-1])
+        r = float(rsi(c).iloc[-1])
+        mk, ms, mh = macd(c)
+        mk_val = float(mk.iloc[-1])
+        ms_val = float(ms.iloc[-1])
+        mh_val = float(mh.iloc[-1])
+        mh_prev = float(mh.iloc[-2])
+        sk, sd = stochastic(h, l, c)
+        sk_val = float(sk.iloc[-1])
+        sd_val = float(sd.iloc[-1])
+
+        exit_reasons = []
+        urgency = "normal"  # normal, warn, urgent
+
+        # P&L berechnen
+        if direction == "BUY":
+            pnl_pct = (current_price - entry) / entry * 100
+            # Stop Loss Nähe
+            sl_dist = (current_price - sl) / entry * 100
+            tp_dist = (tp - current_price) / entry * 100
+        else:
+            pnl_pct = (entry - current_price) / entry * 100
+            sl_dist = (sl - current_price) / entry * 100
+            tp_dist = (current_price - tp) / entry * 100
+
+        # Take Profit erreicht?
+        if tp_dist <= 0:
+            exit_reasons.append("✅ Take Profit erreicht!")
+            urgency = "urgent"
+
+        # Stop Loss Nähe (< 20% Abstand)
+        elif sl_dist < 20 and sl_dist > 0:
+            exit_reasons.append(f"⚠️ Nahe Stop Loss ({sl_dist:.1f}% Abstand)")
+            urgency = "warn"
+
+        # Stop Loss durchbrochen
+        elif sl_dist <= 0:
+            exit_reasons.append("🛑 Stop Loss durchbrochen!")
+            urgency = "urgent"
+
+        # Indikatoren drehen gegen Position
+        if direction == "BUY":
+            if r > 70:
+                exit_reasons.append(f"RSI überkauft ({r:.1f}) – Verkaufsdruck")
+                urgency = max(urgency, "warn") if urgency == "normal" else urgency
+            if mk_val < ms_val and mh_val < mh_prev:
+                exit_reasons.append("MACD dreht negativ – Trendwechsel")
+                urgency = max(urgency, "warn") if urgency == "normal" else urgency
+            if sk_val > 80 and sk_val < sd_val:
+                exit_reasons.append(f"Stochastik dreht runter ({sk_val:.1f})")
+        else:  # SELL
+            if r < 30:
+                exit_reasons.append(f"RSI überverkauft ({r:.1f}) – Kaufdruck")
+                urgency = max(urgency, "warn") if urgency == "normal" else urgency
+            if mk_val > ms_val and mh_val > mh_prev:
+                exit_reasons.append("MACD dreht positiv – Trendwechsel")
+                urgency = max(urgency, "warn") if urgency == "normal" else urgency
+            if sk_val < 20 and sk_val > sd_val:
+                exit_reasons.append(f"Stochastik dreht hoch ({sk_val:.1f})")
+
+        if not exit_reasons:
+            return None
+
+        return {
+            "trade_id": pos["id"],
+            "ticker": ticker,
+            "name": pos["name"],
+            "direction": direction,
+            "entry_price": entry,
+            "current_price": round(current_price, 2),
+            "pnl_pct": round(pnl_pct, 2),
+            "stop_loss": sl,
+            "take_profit": tp,
+            "exit_reasons": exit_reasons,
+            "urgency": urgency,
+            "recommendation": "SCHLIESSEN" if urgency == "urgent" else "PRÜFEN",
+        }
+    except Exception as e:
+        return None
+
+
+@app.get("/api/exit-signals")
+def get_exit_signals():
+    """Analysiert alle offenen Positionen auf Exit-Signale."""
+    p = load_portfolio()
+    positions = p.get("positions", [])
+    if not positions:
+        return {"exit_signals": [], "checked": 0}
+
+    signals = []
+    for pos in positions:
+        sig = check_exit_signal(pos)
+        if sig:
+            signals.append(sig)
+
+    # Sort by urgency
+    order = {"urgent": 0, "warn": 1, "normal": 2}
+    signals.sort(key=lambda x: order.get(x["urgency"], 2))
+
+    return {"exit_signals": signals, "checked": len(positions)}
