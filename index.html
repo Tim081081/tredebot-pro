@@ -471,22 +471,29 @@ function updateTime() {
 
 // ── Signals ──────────────────────────────────────────────────────────────────
 async function loadSignals(force = false) {
-  setLoading(true, force ? 'Vollständige Marktanalyse gestartet…' : 'Signale werden geladen…');
   try {
     const url = force ? `${API}/api/signals/refresh` : `${API}/api/signals`;
     const method = force ? 'POST' : 'GET';
     const res = await fetch(url, { method });
     const data = await res.json();
     if (data.status === 'loading' || data.status === 'running') {
-      setLoading(true, `Märkte werden analysiert… ${data.progress||0}%`);
-      // Poll every 10 seconds until done
-      setTimeout(() => pollSignals(), 10000);
+      // Show message but DON'T block UI
+      document.getElementById('signals-container').innerHTML = `
+        <div class="no-signal-banner">
+          <div style="font-size:32px;margin-bottom:10px;">⏳</div>
+          <div style="font-size:14px;color:#e8e8e8;font-weight:600;margin-bottom:6px;">Analyse läuft…</div>
+          <div style="font-size:12px;">Märkte werden analysiert. Automatische Aktualisierung in 15 Sekunden.</div>
+        </div>`;
+      document.getElementById('stat-analyzed').textContent = '…';
+      document.getElementById('stat-signals').textContent = '…';
+      document.getElementById('stat-top').textContent = '…';
+      setTimeout(() => pollSignals(), 15000);
       return;
     }
     renderSignals(data);
     updateTime();
   } catch(e) {
-    showToast('Verbindungsfehler – Backend erreichbar?', 'error');
+    showToast('Verbindungsfehler', 'error');
     renderSignalsFallback();
   }
   setLoading(false);
@@ -497,16 +504,22 @@ async function pollSignals() {
     const res = await fetch(`${API}/api/signals`);
     const data = await res.json();
     if (data.status === 'loading' || data.status === 'running') {
-      setLoading(true, `Märkte werden analysiert… ${data.progress||0}%`);
-      setTimeout(() => pollSignals(), 10000);
+      const prog = data.progress || 0;
+      document.getElementById('signals-container').innerHTML = `
+        <div class="no-signal-banner">
+          <div style="font-size:32px;margin-bottom:10px;">⏳</div>
+          <div style="font-size:14px;color:#e8e8e8;font-weight:600;margin-bottom:6px;">Analyse läuft… ${prog}%</div>
+          <div style="width:100%;background:#2a2a2a;border-radius:4px;height:6px;margin:8px 0;">
+            <div style="width:${prog}%;background:#f0b429;height:6px;border-radius:4px;transition:width 0.5s;"></div>
+          </div>
+          <div style="font-size:12px;">Automatische Aktualisierung…</div>
+        </div>`;
+      setTimeout(() => pollSignals(), 15000);
       return;
     }
     renderSignals(data);
     updateTime();
-    setLoading(false);
-  } catch(e) {
-    setLoading(false);
-  }
+  } catch(e) {}
 }
 
 function refreshSignals() {
@@ -863,6 +876,7 @@ setInterval(() => {
 }, 2 * 60 * 60 * 1000);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+setLoading(false); // Sofort ausblenden
 updateTime();
 loadSignals(false);
 loadStrengthSetting();
