@@ -1,6 +1,5 @@
 """
-TradeBot Pro - Single File Version
-Alle Funktionen in einer Datei - keine Import-Probleme
+TradeBot Pro v2 - Einstellbare Signalstärke + Investitionsbetrag
 """
 
 from fastapi import FastAPI, HTTPException
@@ -10,23 +9,28 @@ from pydantic import BaseModel
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import json
-import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import json, os
 from datetime import datetime
 from pathlib import Path
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Watchlist ─────────────────────────────────────────────────────────────────
 INDICES = {"DAX": "^GDAXI", "Euro Stoxx 50": "^STOXX50E", "FTSE 100": "^FTSE", "CAC 40": "^FCHI", "IBEX 35": "^IBEX", "AEX": "^AEX", "SMI": "^SSMI"}
 STOCKS = ["SAP.DE","SIE.DE","ALV.DE","MUV2.DE","DTE.DE","BAYN.DE","BMW.DE","MBG.DE","ASML.AS","MC.PA","TTE.PA","SAN.MC","NESN.SW","ROG.SW","NOVN.SW","AZN.L","HSBA.L","BP.L","SHEL.L","GSK.L","AIR.PA","BNP.PA","OR.PA"]
 
-# ── Portfolio Storage ─────────────────────────────────────────────────────────
 PORTFOLIO_FILE = "/tmp/portfolio.json"
+SETTINGS_FILE = "/tmp/settings.json"
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    return {"min_strength": 60}
+
+def save_settings(s):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(s, f)
 
 def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
@@ -38,7 +42,6 @@ def save_portfolio(p):
     with open(PORTFOLIO_FILE, "w") as f:
         json.dump(p, f)
 
-# ── Technical Indicators ──────────────────────────────────────────────────────
 def rsi(close, period=14):
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(period).mean()
@@ -71,7 +74,7 @@ def atr(high, low, close, period=14):
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     return tr.rolling(period).mean()
 
-def score_ticker(ticker, name):
+def score_ticker(ticker, name, min_strength=60):
     try:
         df = yf.download(ticker, period="3mo", interval="1d", progress=False, auto_adjust=True)
         if df is None or df.empty or len(df) < 30:
@@ -98,22 +101,18 @@ def score_ticker(ticker, name):
         elif r < 40: score += 10; signals.append(f"RSI schwach ({r:.1f})")
         elif r > 70: score -= 20; signals.append(f"RSI überkauft ({r:.1f})")
         elif r > 60: score -= 10; signals.append(f"RSI stark ({r:.1f})")
-
         if mk_val > ms_val and mh_val > mh_prev: score += 20; signals.append("MACD bullisch")
         elif mk_val < ms_val and mh_val < mh_prev: score -= 20; signals.append("MACD bärisch")
-
         if pb < 0.05: score += 20; signals.append("Unteres Bollinger Band")
         elif pb < 0.2: score += 10; signals.append("Nahe unterem BB")
         elif pb > 0.95: score -= 20; signals.append("Oberes Bollinger Band")
         elif pb > 0.8: score -= 10; signals.append("Nahe oberem BB")
+        if sk_val < 20 and sk_val > sd_val: score += 15; signals.append(f"Stochastik dreht hoch ({sk_val:.1f})")
+        elif sk_val > 80 and sk_val < sd_val: score -= 15; signals.append(f"Stochastik dreht runter ({sk_val:.1f})")
+        if price > e20 > e50: score += 10; signals.append("Auftrend EMA20/50")
+        elif price < e20 < e50: score -= 10; signals.append("Abtrend EMA20/50")
 
-        if sk_val < 20 and sk_val > sd_val: score += 15; signals.append(f"Stochastik dreht ({sk_val:.1f})")
-        elif sk_val > 80 and sk_val < sd_val: score -= 15; signals.append(f"Stochastik dreht ({sk_val:.1f})")
-
-        if price > e20 > e50: score += 10; signals.append("Auftrend EMA")
-        elif price < e20 < e50: score -= 10; signals.append("Abtrend EMA")
-
-        if abs(score) < 60:
+        if abs(score) < min_strength:
             return None
 
         direction = "BUY" if score > 0 else "SELL"
@@ -122,26 +121,30 @@ def score_ticker(ticker, name):
 
         return {"ticker": ticker, "name": name, "price": round(price, 2), "direction": direction,
                 "score": int(score), "strength": min(100, abs(int(score))), "signals": signals,
-                "stop_loss": sl, "take_profit": tp, "rsi": round(float(r), 1), "timestamp": datetime.now().isoformat()}
-    except Exception as e:
+                "stop_loss": sl, "take_profit": tp, "rsi": round(float(r), 1),
+                "timestamp": datetime.now().isoformat()}
+    except:
         return None
 
 _cache = {}
 
-# ── API Endpoints ─────────────────────────────────────────────────────────────
 @app.get("/api/signals")
 async def get_signals():
-    if _cache.get("data") and (datetime.now() - datetime.fromisoformat(_cache["time"])).seconds < 3600:
-        return _cache["data"]
+    settings = load_settings()
+    min_str = settings.get("min_strength", 60)
+    cache_key = f"signals_{min_str}"
+    if _cache.get(cache_key) and (datetime.now() - datetime.fromisoformat(_cache["time"])).seconds < 3600:
+        return _cache[cache_key]
     results = []
     all_tickers = list(INDICES.items()) + [(t, t) for t in STOCKS]
     for name, ticker in all_tickers:
-        sig = score_ticker(ticker, name)
+        sig = score_ticker(ticker, name, min_str)
         if sig:
             results.append(sig)
     results.sort(key=lambda x: x["strength"], reverse=True)
-    data = {"timestamp": datetime.now().isoformat(), "total_analyzed": len(all_tickers), "signals_found": len(results), "top_signals": results[:5]}
-    _cache["data"] = data
+    data = {"timestamp": datetime.now().isoformat(), "total_analyzed": len(all_tickers),
+            "signals_found": len(results), "top_signals": results[:5], "min_strength": min_str}
+    _cache[cache_key] = data
     _cache["time"] = datetime.now().isoformat()
     return data
 
@@ -149,6 +152,23 @@ async def get_signals():
 async def refresh_signals():
     _cache.clear()
     return await get_signals()
+
+@app.get("/api/settings")
+def get_settings():
+    return load_settings()
+
+class SettingsRequest(BaseModel):
+    min_strength: int
+
+@app.post("/api/settings")
+def update_settings(req: SettingsRequest):
+    if not 20 <= req.min_strength <= 100:
+        raise HTTPException(400, "Stärke muss zwischen 20 und 100 liegen")
+    s = load_settings()
+    s["min_strength"] = req.min_strength
+    save_settings(s)
+    _cache.clear()
+    return s
 
 @app.get("/api/portfolio")
 def get_portfolio():
@@ -159,14 +179,17 @@ def get_portfolio():
     pnl = round(total - p["start_capital"], 2)
     wins = [t for t in closed if t.get("status") == "WIN"]
     stats = {"start_capital": p["start_capital"], "total_value": total, "cash": p["cash"],
-             "open_value": round(open_val, 2), "total_pnl": pnl, "total_pnl_pct": round(pnl / p["start_capital"] * 100, 2),
+             "open_value": round(open_val, 2), "total_pnl": pnl,
+             "total_pnl_pct": round(pnl / p["start_capital"] * 100, 2),
              "total_trades": len(closed), "open_positions": len(p["positions"]),
              "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else 0}
     return {"portfolio": p, "stats": stats}
 
 class TradeRequest(BaseModel):
     ticker: str; name: str; direction: str; price: float
-    stop_loss: float; take_profit: float; score: int; signals: list; leverage: int = 1
+    stop_loss: float; take_profit: float; score: int
+    signals: list; leverage: int = 1
+    invest_amount: float = 0  # 0 = auto (5% of portfolio)
 
 @app.post("/api/trade/open")
 def open_trade(req: TradeRequest):
@@ -174,11 +197,21 @@ def open_trade(req: TradeRequest):
     distance = abs(req.price - req.stop_loss)
     if distance == 0:
         raise HTTPException(400, "Stop loss identisch mit Preis")
-    risk = p["cash"] * 0.05
-    units = round(risk / distance, 4)
-    cost = round(req.price * units, 2)
+
+    # Use custom amount or auto 5%
+    if req.invest_amount > 0:
+        cost = round(min(req.invest_amount, p["cash"]), 2)
+        units = round(cost / req.price, 4)
+    else:
+        risk = p["cash"] * 0.05
+        units = round(risk / distance, 4)
+        cost = round(req.price * units, 2)
+
     if cost > p["cash"]:
         raise HTTPException(400, f"Nicht genug Cash ({p['cash']:.2f}€)")
+    if cost <= 0:
+        raise HTTPException(400, "Investitionsbetrag muss größer als 0 sein")
+
     trade_id = f"T{len(p['closed_trades']) + len(p['positions']) + 1:04d}"
     pos = {"id": trade_id, "ticker": req.ticker, "name": req.name, "direction": req.direction,
            "entry_price": req.price, "current_price": req.price, "units": units, "cost": cost,
@@ -201,14 +234,15 @@ def close_trade(req: CloseRequest):
         raise HTTPException(404, "Position nicht gefunden")
     pnl = (req.close_price - pos["entry_price"]) * pos["units"] if pos["direction"] == "BUY" else (pos["entry_price"] - req.close_price) * pos["units"]
     proceeds = round(pos["cost"] + pnl, 2)
-    closed = {**pos, "close_price": req.close_price, "pnl": round(pnl, 2), "pnl_pct": round(pnl / pos["cost"] * 100, 2), "proceeds": proceeds, "closed": datetime.now().isoformat(), "status": "WIN" if pnl > 0 else "LOSS"}
+    closed = {**pos, "close_price": req.close_price, "pnl": round(pnl, 2),
+              "pnl_pct": round(pnl / pos["cost"] * 100, 2), "proceeds": proceeds,
+              "closed": datetime.now().isoformat(), "status": "WIN" if pnl > 0 else "LOSS"}
     p["positions"] = [x for x in p["positions"] if x["id"] != req.trade_id]
     p["closed_trades"].append(closed)
     p["cash"] = round(p["cash"] + proceeds, 2)
     save_portfolio(p)
     return {"success": True, "trade": closed}
 
-# ── Frontend ──────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def frontend():
     html_path = Path(__file__).parent / "index.html"
