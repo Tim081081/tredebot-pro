@@ -471,12 +471,18 @@ function updateTime() {
 
 // ── Signals ──────────────────────────────────────────────────────────────────
 async function loadSignals(force = false) {
-  setLoading(true, force ? 'Vollständige Marktanalyse läuft…' : 'Signale werden geladen…');
+  setLoading(true, force ? 'Vollständige Marktanalyse gestartet…' : 'Signale werden geladen…');
   try {
     const url = force ? `${API}/api/signals/refresh` : `${API}/api/signals`;
     const method = force ? 'POST' : 'GET';
     const res = await fetch(url, { method });
     const data = await res.json();
+    if (data.status === 'loading' || data.status === 'running') {
+      setLoading(true, `Märkte werden analysiert… ${data.progress||0}%`);
+      // Poll every 10 seconds until done
+      setTimeout(() => pollSignals(), 10000);
+      return;
+    }
     renderSignals(data);
     updateTime();
   } catch(e) {
@@ -484,6 +490,23 @@ async function loadSignals(force = false) {
     renderSignalsFallback();
   }
   setLoading(false);
+}
+
+async function pollSignals() {
+  try {
+    const res = await fetch(`${API}/api/signals`);
+    const data = await res.json();
+    if (data.status === 'loading' || data.status === 'running') {
+      setLoading(true, `Märkte werden analysiert… ${data.progress||0}%`);
+      setTimeout(() => pollSignals(), 10000);
+      return;
+    }
+    renderSignals(data);
+    updateTime();
+    setLoading(false);
+  } catch(e) {
+    setLoading(false);
+  }
 }
 
 function refreshSignals() {
@@ -850,4 +873,4 @@ document.getElementById('toggle-paper').classList.toggle('on', !!settings.paper)
 document.getElementById('toggle-push').classList.toggle('on', !!settings.push);
 </script>
 </body>
-                                                                              </html>
+</html>
