@@ -383,12 +383,21 @@
 
     <div class="section-title">📈 Analyseparameter</div>
     <div class="card">
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Min. Signalstärke</div>
-          <div class="setting-sub">Nur Signale über 60/100 werden angezeigt</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px;">
+        <div style="display:flex;justify-content:space-between;width:100%;">
+          <div>
+            <div class="setting-label">Min. Signalstärke</div>
+            <div class="setting-sub">Nur Signale über diesem Wert werden angezeigt</div>
+          </div>
+          <span class="mono gold" id="strength-display">60</span>
         </div>
-        <span class="mono gold">60</span>
+        <input type="range" id="strength-slider" min="20" max="80" value="60" step="5"
+          style="width:100%;accent-color:#f0b429;"
+          oninput="document.getElementById('strength-display').textContent=this.value"
+          onchange="saveStrengthSetting(this.value)">
+        <div style="display:flex;justify-content:space-between;width:100%;font-size:10px;color:#666;">
+          <span>20 (Viele)</span><span>50 (Mittel)</span><span>80 (Wenige)</span>
+        </div>
       </div>
       <div class="setting-row">
         <div>
@@ -542,10 +551,16 @@ function renderSignals(data) {
         ${(s.signals||[]).map(r => `<span>${r}</span>`).join('')}
       </div>
 
-      <div class="signal-actions">
+      <div class="signal-actions" style="flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:12px;color:#888;white-space:nowrap;">Betrag:</span>
+          <input type="number" id="amt-${i}" value="500" min="10" max="10000" step="50"
+            style="flex:1;padding:8px 10px;border-radius:8px;background:#2a2a2a;border:1px solid #444;color:#e8e8e8;font-size:13px;font-family:monospace;">
+          <span style="font-size:12px;color:#888;">€</span>
+        </div>
         <button class="btn ${s.direction === 'BUY' ? 'btn-buy' : 'btn-sell'}"
-          onclick='executePaperTrade(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
-          ${s.direction === 'BUY' ? '+ Long eröffnen' : '− Short eröffnen'}
+          onclick='executePaperTrade(${JSON.stringify(s).replace(/'/g,"&#39;")}, document.getElementById("amt-${i}").value)'>
+          ${s.direction === 'BUY' ? '▲ Long eröffnen' : '▼ Short eröffnen'}
         </button>
       </div>
     </div>
@@ -562,12 +577,38 @@ function renderSignalsFallback() {
   setLoading(false);
 }
 
+// ── Settings Sync ─────────────────────────────────────────────────────────────
+async function saveStrengthSetting(value) {
+  try {
+    await fetch(`${API}/api/settings`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({min_strength: parseInt(value)})
+    });
+    showToast(`Signalstärke auf ${value} gesetzt – neue Analyse startet…`, 'success');
+    setTimeout(() => loadSignals(true), 500);
+  } catch(e) {
+    showToast('Fehler beim Speichern', 'error');
+  }
+}
+
+async function loadStrengthSetting() {
+  try {
+    const res = await fetch(`${API}/api/settings`);
+    const data = await res.json();
+    const val = data.min_strength || 60;
+    document.getElementById('strength-slider').value = val;
+    document.getElementById('strength-display').textContent = val;
+  } catch(e) {}
+}
+
 // ── Paper Trading ─────────────────────────────────────────────────────────────
-async function executePaperTrade(signal) {
+async function executePaperTrade(signal, investAmount) {
   if (!settings.paper) {
     showToast('Paper Trading ist deaktiviert', 'error');
     return;
   }
+  const amount = parseFloat(investAmount) || 0;
   try {
     const res = await fetch(`${API}/api/trade/open`, {
       method: 'POST',
@@ -581,7 +622,8 @@ async function executePaperTrade(signal) {
         take_profit: signal.take_profit,
         score: signal.score,
         signals: signal.signals,
-        leverage: 1
+        leverage: 1,
+        invest_amount: amount
       })
     });
     const data = await res.json();
@@ -757,6 +799,7 @@ setInterval(() => {
 // ── Init ──────────────────────────────────────────────────────────────────────
 updateTime();
 loadSignals(false);
+loadStrengthSetting();
 
 // Apply saved settings
 document.getElementById('toggle-email').classList.toggle('on', !!settings.email);
