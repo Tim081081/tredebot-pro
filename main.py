@@ -574,6 +574,35 @@ def get_mini_futures(ticker: str, direction: str = "BUY"):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Returns ALL tickers with their current signal strength - for the watchlist tab"""
+    with _lock:
+        status = _state.get("status", "idle")
+        all_results = _state.get("all_results", [])
+        results = _state.get("results", [])
+
+    if status != "done":
+        return {"status": status, "items": results}
+
+    # Build complete list: analyzed tickers + those with no signal (neutral)
+    analyzed_tickers = {r["ticker"] for r in all_results}
+    items = list(all_results)  # Start with all that had any score
+
+    # Add neutral tickers (those that didn't meet threshold)
+    for name, ticker in ALL_TICKERS.items():
+        if ticker not in analyzed_tickers:
+            items.append({
+                "ticker": ticker, "name": name, "price": None,
+                "direction": "NEUTRAL", "score": 0, "strength": 0,
+                "signals": [], "stop_loss": None, "take_profit": None,
+                "rsi": None, "timestamp": None
+            })
+
+    # Sort: signals first (by strength), then neutrals
+    items.sort(key=lambda x: x.get("strength", 0), reverse=True)
+    return {"status": "done", "items": items, "total": len(items)}
+
 @app.get("/api/portfolio/backup")
 def backup_portfolio():
     """Export portfolio as JSON for client-side storage"""

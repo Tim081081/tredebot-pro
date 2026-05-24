@@ -90,6 +90,18 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .close-btn{width:32px;height:32px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--text);cursor:pointer;font-size:18px}
 .modal-body{padding:14px}
 .chart-container{background:var(--s1);border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:14px}
+.wl-filter{padding:5px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer}
+.wl-filter.active{background:var(--gold);color:#fff;border-color:var(--gold)}
+.wl-row{display:flex;align-items:center;padding:10px 12px;background:var(--s1);border:1px solid var(--b);border-radius:var(--r);margin-bottom:6px;cursor:pointer;transition:border-color .15s}
+.wl-row:hover{border-color:var(--gold)}
+.wl-row.buy-row{border-left:3px solid var(--green)}
+.wl-row.sell-row{border-left:3px solid var(--red)}
+.wl-row.neutral-row{border-left:3px solid var(--b)}
+.wl-name{font-weight:600;font-size:13px;flex:1}
+.wl-ticker{font-size:10px;color:var(--muted);font-family:monospace}
+.wl-price{font-family:monospace;font-size:13px;font-weight:600;text-align:right;min-width:60px}
+.wl-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:8px;min-width:52px;text-align:center}
+.wl-strength{font-size:10px;color:var(--muted);margin-left:6px;min-width:36px;text-align:right}
 @media (orientation: landscape) {
   .chart-container canvas{height:85vw !important;max-height:85vw;}
   .modal-body{padding:8px;}
@@ -128,6 +140,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
 
 <nav>
   <div class="tab active" onclick="showTab('signals')"><span class="tab-icon">📡</span>Signale</div>
+  <div class="tab" onclick="showTab('watchlist')"><span class="tab-icon">📊</span>Alle Werte</div>
   <div class="tab" onclick="showTab('portfolio')"><span class="tab-icon">💼</span>Portfolio</div>
   <div class="tab" onclick="showTab('history')"><span class="tab-icon">📋</span>Historie</div>
   <div class="tab" onclick="showTab('settings')"><span class="tab-icon">⚙️</span>Einstellungen</div>
@@ -144,6 +157,23 @@ main{padding:14px;max-width:800px;margin:0 auto}
     <div id="progress-area"></div>
     <div class="section-title">📡 Handelssignale <span style="font-size:10px;font-weight:400;color:var(--muted)">· Tippen für Details & Mini-Futures</span></div>
     <div id="signals-list"></div>
+  </div>
+
+  <!-- ALLE WERTE -->
+  <div class="page" id="page-watchlist">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="section-title" style="margin:0">📊 Alle analysierten Werte</div>
+      <button onclick="loadWatchlist(true)" style="padding:6px 12px;border-radius:8px;background:var(--gold);border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer">⟳ Aktualisieren</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="wl-filter active" onclick="filterWatchlist('all',this)">Alle</button>
+      <button class="wl-filter" onclick="filterWatchlist('BUY',this)">▲ Long</button>
+      <button class="wl-filter" onclick="filterWatchlist('SELL',this)">▼ Short</button>
+      <button class="wl-filter" onclick="filterWatchlist('NEUTRAL',this)">⊘ Neutral</button>
+    </div>
+    <div id="watchlist-container">
+      <div class="empty"><div class="empty-icon">⏳</div>Analyse läuft – bitte warten</div>
+    </div>
   </div>
 
   <!-- PORTFOLIO -->
@@ -296,10 +326,11 @@ let selMF = null;
 function showTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const tabs = ['signals','portfolio','history','settings'];
+  const tabs = ['signals','watchlist','portfolio','history','settings'];
   document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
   document.getElementById('page-'+name).classList.add('active');
   if (name==='portfolio'||name==='history') { loadPortfolio(); restorePortfolioIfNeeded(); }
+  if (name==='watchlist') loadWatchlist(false);
 }
 
 function showDTab(name) {
@@ -850,6 +881,80 @@ async function updatePortfolioPrices() {
     // Full reload for accurate totals
     loadPortfolio();
   } catch(e) {}
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────────
+let _watchlistData = [];
+let _watchlistFilter = 'all';
+
+async function loadWatchlist(forceRefresh=false) {
+  const container = document.getElementById('watchlist-container');
+  if (!_watchlistData.length || forceRefresh) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft…<div style="font-size:12px;margin-top:6px;color:var(--muted)">Alle Werte werden analysiert</div></div>';
+    try {
+      // Get signals with strength 0 to get ALL tickers
+      // First check cache
+      const res = await fetch(`${API}/api/signals`);
+      const d = await res.json();
+      if (d.status === 'loading' || d.status === 'running') {
+        container.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft… ${d.progress||0}%<div class="progress-bar-bg" style="margin:12px 0"><div class="progress-bar-fill" style="width:${d.progress||0}%"></div></div></div>`;
+        setTimeout(() => loadWatchlist(false), 10000);
+        return;
+      }
+      // Get all results including weak signals
+      const allRes = await fetch(`${API}/api/watchlist`);
+      if (allRes.ok) {
+        const allData = await allRes.json();
+        _watchlistData = allData.items || [];
+      } else {
+        // Fallback: use top signals from cache
+        _watchlistData = d.top_signals || [];
+      }
+    } catch(e) {
+      container.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div>Fehler beim Laden</div>';
+      return;
+    }
+  }
+  renderWatchlist();
+}
+
+function filterWatchlist(filter, btn) {
+  _watchlistFilter = filter;
+  document.querySelectorAll('.wl-filter').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderWatchlist();
+}
+
+function renderWatchlist() {
+  const container = document.getElementById('watchlist-container');
+  let items = _watchlistData;
+  if (_watchlistFilter === 'BUY') items = items.filter(x => x.direction === 'BUY');
+  else if (_watchlistFilter === 'SELL') items = items.filter(x => x.direction === 'SELL');
+  else if (_watchlistFilter === 'NEUTRAL') items = items.filter(x => !x.direction || x.strength < 20);
+
+  if (!items.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>Keine Einträge für diesen Filter</div>';
+    return;
+  }
+
+  container.innerHTML = items.map(s => {
+    const dir = s.direction || 'NEUTRAL';
+    const rowClass = dir==='BUY'?'buy-row':dir==='SELL'?'sell-row':'neutral-row';
+    const badgeStyle = dir==='BUY'?'background:rgba(22,163,74,.15);color:var(--green)':dir==='SELL'?'background:rgba(239,68,68,.15);color:var(--red)':'background:var(--s2);color:var(--muted)';
+    const badgeText = dir==='BUY'?'▲ LONG':dir==='SELL'?'▼ SHORT':'⊘ NEUTRAL';
+    const strengthColor = s.strength>=70?'var(--green)':s.strength>=50?'#d97706':'var(--muted)';
+    return `<div class="wl-row ${rowClass}" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
+      <div style="flex:1;min-width:0">
+        <div class="wl-name">${s.name}</div>
+        <div class="wl-ticker">${s.ticker}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="wl-price">${fmt(s.price)}</div>
+        <div style="font-size:10px;color:${strengthColor};font-weight:600">${s.strength||0}/100</div>
+      </div>
+      <span class="wl-badge" style="${badgeStyle}">${badgeText}</span>
+    </div>`;
+  }).join('');
 }
 
 // ── Portfolio Backup/Restore (survives server restarts) ───────────────────────
