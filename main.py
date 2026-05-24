@@ -53,7 +53,7 @@ _state = {"status": "idle", "progress": 0, "results": [], "timestamp": None}
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f: return json.load(f)
-    return {"min_strength": 60}
+    return {"min_strength": 30}
 
 def save_settings(s):
     with open(SETTINGS_FILE, "w") as f: json.dump(s, f)
@@ -558,7 +558,7 @@ def get_portfolio():
     total = round(p["cash"] + open_val, 2)
     pnl = round(total - p["start_capital"], 2)
     wins = [t for t in closed if t.get("status") == "WIN"]
-    fees_paid = len(closed) * ORDER_FEE
+    fees_paid = (len(closed) + len(p["positions"])) * ORDER_FEE
     stats = {"start_capital":p["start_capital"],"total_value":total,"cash":p["cash"],
              "open_value":round(open_val,2),"total_pnl":pnl,
              "total_pnl_pct":round(pnl/p["start_capital"]*100,2),
@@ -684,4 +684,4 @@ def manifest():
     if mf_path.exists(): return JSONResponse(json.loads(mf_path.read_text()))
     return JSONResponse({})
 
-Thread(target=run_analysis, args=(60,), daemon=True).start()
+Thread(target=run_analysis, args=(30,), daemon=True).start()
