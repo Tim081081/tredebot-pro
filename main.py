@@ -558,7 +558,7 @@ def get_portfolio():
     total = round(p["cash"] + open_val, 2)
     pnl = round(total - p["start_capital"], 2)
     wins = [t for t in closed if t.get("status") == "WIN"]
-    fees_paid = (len(closed) + len(p["positions"])) * ORDER_FEE
+    fees_paid = len(closed) * ORDER_FEE * 2 + len(p["positions"]) * ORDER_FEE
     stats = {"start_capital":p["start_capital"],"total_value":total,"cash":p["cash"],
              "open_value":round(open_val,2),"total_pnl":pnl,
              "total_pnl_pct":round(pnl/p["start_capital"]*100,2),

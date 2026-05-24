@@ -12,11 +12,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-:root{--bg:#0a0a0a;--s1:#141414;--s2:#1c1c1c;--b:#2a2a2a;--gold:#f0b429;--green:#22c55e;--red:#ef4444;--text:#e8e8e8;--muted:#666;--r:12px}
+:root{--bg:#ffffff;--s1:#f5f5f5;--s2:#ebebeb;--b:#d0d0d0;--gold:#1a73e8;--green:#16a34a;--red:#ef4444;--text:#111111;--muted:#777;--r:12px}
 body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-header{position:sticky;top:0;z-index:100;background:rgba(10,10,10,.95);backdrop-filter:blur(16px);border-bottom:1px solid var(--b);padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+header{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border-bottom:1px solid var(--b);padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
 .logo{display:flex;align-items:center;gap:10px}
-.logo-mark{width:32px;height:32px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#000}
+.logo-mark{width:32px;height:32px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#fff}
 .logo-text{font-size:18px;font-weight:800}.logo-text span{color:var(--gold)}
 .badge-time{font-size:11px;color:var(--muted);background:var(--s2);padding:4px 10px;border-radius:20px;border:1px solid var(--b)}
 #refresh-btn{width:32px;height:32px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--gold);cursor:pointer;font-size:16px}
@@ -84,12 +84,17 @@ main{padding:14px;max-width:800px;margin:0 auto}
 /* Modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;overflow-y:auto}
 .modal.open{display:block}
-.modal-inner{background:var(--bg);min-height:100vh}
-.modal-header{position:sticky;top:0;background:rgba(10,10,10,.95);backdrop-filter:blur(16px);border-bottom:1px solid var(--b);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;z-index:10}
+.modal-inner{background:var(--bg);min-height:100vh;color:var(--text)}
+.modal-header{position:sticky;top:0;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border-bottom:1px solid var(--b);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;z-index:10}
 .modal-title{font-size:16px;font-weight:700}
 .close-btn{width:32px;height:32px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--text);cursor:pointer;font-size:18px}
 .modal-body{padding:14px}
 .chart-container{background:var(--s1);border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:14px}
+@media (orientation: landscape) {
+  .chart-container canvas{height:85vw !important;max-height:85vw;}
+  .modal-body{padding:8px;}
+  #dtab-chart{max-height:100vh;overflow-y:auto;}
+}
 .ind-table{width:100%;border-collapse:collapse;font-size:12px}
 .ind-table th{text-align:left;padding:6px 8px;background:var(--s2);color:var(--gold);font-size:11px;text-transform:uppercase}
 .ind-table td{padding:6px 8px;border-bottom:1px solid var(--b)}
@@ -235,7 +240,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
         <button class="period-btn" onclick="setPeriod('1y',this)">1J</button>
         <button class="period-btn" onclick="resetZoom()" style="margin-left:auto;color:var(--gold)">⊙ Zoom reset</button>
       </div>
-        <div class="chart-container"><canvas id="price-chart" height="260"></canvas></div>
+        <div class="chart-container"><canvas id="price-chart" height="260" style="width:100%"></canvas></div>
         <div id="chart-levels" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
         <div style="font-size:10px;color:var(--muted);margin-top:8px">
           <span style="color:#e8e8e8">— Kurs</span>&nbsp;
@@ -486,7 +491,7 @@ function buildChart(data, d) {
       type:'line', yMin:v, yMax:v,
       borderColor:'rgba(34,197,94,.8)', borderWidth:2, borderDash:[6,4],
       label:{content:'S'+(i+1)+': '+v, display:true, position:'start',
-             backgroundColor:'rgba(0,0,0,.8)', color:'#22c55e', font:{size:12,weight:'bold'},
+             backgroundColor:'rgba(255,255,255,.9)', color:'#16a34a', font:{size:12,weight:'bold'},
              padding:{x:6,y:4}}
     };
   });
@@ -495,7 +500,7 @@ function buildChart(data, d) {
       type:'line', yMin:v, yMax:v,
       borderColor:'rgba(239,68,68,.8)', borderWidth:2, borderDash:[6,4],
       label:{content:'R'+(i+1)+': '+v, display:true, position:'start',
-             backgroundColor:'rgba(0,0,0,.8)', color:'#ef4444', font:{size:12,weight:'bold'},
+             backgroundColor:'rgba(255,255,255,.9)', color:'#ef4444', font:{size:12,weight:'bold'},
              padding:{x:6,y:4}}
     };
   });
@@ -524,8 +529,8 @@ function buildChart(data, d) {
         annotation:{annotations}
       },
       scales:{
-        x:{ticks:{color:'#555',maxTicksLimit:8,font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},
-        y:{ticks:{color:'#888',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}
+        x:{ticks:{color:'#333',maxTicksLimit:8,font:{size:10}},grid:{color:'rgba(0,0,0,.08)'}},
+        y:{ticks:{color:'#555',font:{size:10}},grid:{color:'rgba(0,0,0,.08)'}}
       }
     }
   });
@@ -703,9 +708,8 @@ async function loadPortfolio() {
     document.getElementById('p-cash').textContent=fmt(s.cash)+'€';
     document.getElementById('p-trades').textContent=s.total_trades||0;
     document.getElementById('p-wr').textContent=(s.win_rate||0)+'%';
-    const openFees = (pd.portfolio?.positions?.length||0) * 10;
-    const totalFees = (s.fees_paid||0) + openFees;
-    document.getElementById('p-fees').textContent=fmt(totalFees)+'€';
+    // fees_paid from server already counts both open and close fees correctly
+    document.getElementById('p-fees').textContent=fmt(s.fees_paid||0)+'€';
 
     renderExitSignals(ed.exit_signals||[]);
     renderPositions(pd.portfolio?.positions||[]);
