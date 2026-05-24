@@ -521,6 +521,20 @@ def get_mini_futures(ticker: str, direction: str = "BUY"):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.get("/api/portfolio/backup")
+def backup_portfolio():
+    """Export portfolio as JSON for client-side storage"""
+    return load_portfolio()
+
+@app.post("/api/portfolio/restore")
+def restore_portfolio(data: dict):
+    """Restore portfolio from client-side backup"""
+    required = ["cash", "start_capital", "positions", "closed_trades"]
+    if not all(k in data for k in required):
+        raise HTTPException(400, "Ungültige Portfolio-Daten")
+    save_portfolio(data)
+    return {"success": True, "message": "Portfolio wiederhergestellt"}
+
 @app.get("/api/settings")
 def get_settings_ep(): return load_settings()
 
