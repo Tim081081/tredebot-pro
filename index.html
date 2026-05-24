@@ -342,7 +342,7 @@ async function loadSignals() {
     const status = d.status||'done';
     document.getElementById('s-analyzed').textContent = d.total_analyzed||'…';
     document.getElementById('s-found').textContent = d.signals_found||(status==='done'?'0':'…');
-    document.getElementById('s-top').textContent = d.top_signals?.length?d.top_signals[0].strength+'/100':'—';
+    document.getElementById('s-top').textContent = d.top_signals?.length?d.top_signals[0].strength+'/100 ('+d.top_signals.length+')':'—';
 
     const pa = document.getElementById('progress-area');
     if (status==='loading'||status==='running') {
@@ -389,7 +389,10 @@ function renderSignals(signals) {
         <div class="price-item"><div class="price-label">Stop Loss</div><div class="price-value neg">${fmt(s.stop_loss)}</div></div>
       </div>
       <div class="strength-bar"><div class="strength-fill" style="width:${s.strength}%;background:${s.direction==='BUY'?'var(--green)':'var(--red)'}"></div></div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Stärke: <b>${s.strength}/100</b> · RSI: ${s.rsi}${s.analyst?.recommendation?' · '+s.analyst.recommendation:''}</div>
+      <div style="font-size:11px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        ${s.strength>=70?'<span style="background:#16a34a;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟢 STARK</span>':s.strength>=50?'<span style="background:#d97706;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟡 MITTEL</span>':'<span style="background:#9ca3af;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟠 SCHWACH</span>'}
+        <span style="color:var(--muted)">${s.strength}/100 · RSI: ${s.rsi}${s.analyst?.recommendation?' · '+s.analyst.recommendation:''}</span>
+      </div>
       <div class="signal-tags">${(s.signals||[]).slice(0,4).map(r=>`<span>${r}</span>`).join('')}</div>
       <div onclick="event.stopPropagation()">
         <div class="amount-row">
