@@ -274,11 +274,14 @@ main{padding:14px;max-width:800px;margin:0 auto}
       </div>
         <div class="chart-container"><canvas id="price-chart" height="260" style="width:100%"></canvas></div>
         <div id="chart-levels" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
-        <div style="font-size:10px;color:var(--muted);margin-top:8px">
-          <span style="color:#e8e8e8">— Kurs</span>&nbsp;
-          <span style="color:rgba(240,180,41,.7)">--- BB Bänder</span>&nbsp;
-          <span style="color:rgba(34,197,94,.7)">— EMA 20</span>&nbsp;
-          <span style="color:rgba(239,68,68,.7)">— EMA 50</span>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;line-height:1.8">
+          <span><span style="display:inline-block;width:16px;height:2px;background:#1a1a1a;vertical-align:middle;margin-right:3px"></span>Kurs</span>
+          <span><span style="display:inline-block;width:16px;height:8px;background:rgba(100,130,220,.2);border:1px solid rgba(100,100,200,.4);vertical-align:middle;margin-right:3px;border-radius:2px"></span>Bollinger Bänder</span>
+          <span><span style="display:inline-block;width:16px;height:2px;background:rgba(22,163,74,.9);vertical-align:middle;margin-right:3px"></span>EMA 20</span>
+          <span><span style="display:inline-block;width:16px;height:2px;background:rgba(220,38,38,.9);vertical-align:middle;margin-right:3px"></span>EMA 50</span>
+          <span id="ema200-legend" style="display:none"><span style="display:inline-block;width:16px;height:2px;background:rgba(99,102,241,.9);vertical-align:middle;margin-right:3px;border-top:2px dashed rgba(99,102,241,.9)"></span>EMA 200</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:rgba(34,197,94,.2);border:1px dashed var(--green);vertical-align:middle;margin-right:3px;border-radius:2px"></span>Support</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:rgba(239,68,68,.2);border:1px dashed var(--red);vertical-align:middle;margin-right:3px;border-radius:2px"></span>Widerstand</span>
         </div>
       </div>
       <!-- Indicators Tab -->
@@ -569,16 +572,32 @@ function buildChart(data, d) {
   });
 
   const hasEma200 = data.some(x => x.ema200);
+  // BB as filled area: upper fills down to lower
   const datasets = [
-    {label:'Kurs',data:data.map(x=>x.close),borderColor:'#333',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:1},
-    {label:'BB Upper',data:data.map(x=>x.bb_upper),borderColor:'rgba(180,120,0,.4)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
-    {label:'BB Mitte',data:data.map(x=>x.bb_mid),borderColor:'rgba(180,120,0,.6)',borderWidth:1,pointRadius:0,fill:false},
-    {label:'BB Lower',data:data.map(x=>x.bb_lower),borderColor:'rgba(180,120,0,.4)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
-    {label:'EMA 20',data:data.map(x=>x.ema20),borderColor:'rgba(22,163,74,.8)',borderWidth:1.5,pointRadius:0,fill:false},
-    {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'rgba(220,38,38,.8)',borderWidth:1.5,pointRadius:0,fill:false},
+    // BB Upper (fills down to BB Lower = index 3)
+    {label:'BB Oberes Band',data:data.map(x=>x.bb_upper),
+     borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,
+     fill:'+2',backgroundColor:'rgba(100,130,220,.12)',tension:0.3},
+    // BB Mitte
+    {label:'BB Mittelband',data:data.map(x=>x.bb_mid),
+     borderColor:'rgba(100,100,200,.5)',borderWidth:1,pointRadius:0,
+     fill:false,borderDash:[3,3],tension:0.3},
+    // BB Lower
+    {label:'BB Unteres Band',data:data.map(x=>x.bb_lower),
+     borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,
+     fill:false,backgroundColor:'rgba(100,130,220,.12)',tension:0.3},
+    // Kurs on top
+    {label:'Kurs',data:data.map(x=>x.close),
+     borderColor:'#1a1a1a',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:0},
+    {label:'EMA 20',data:data.map(x=>x.ema20),
+     borderColor:'rgba(22,163,74,.9)',borderWidth:1.5,pointRadius:0,fill:false},
+    {label:'EMA 50',data:data.map(x=>x.ema50),
+     borderColor:'rgba(220,38,38,.9)',borderWidth:1.5,pointRadius:0,fill:false},
   ];
   if (hasEma200) datasets.push(
-    {label:'EMA 200',data:data.map(x=>x.ema200||null),borderColor:'rgba(99,102,241,.8)',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[6,2]}
+    {label:'EMA 200',data:data.map(x=>x.ema200||null),
+     borderColor:'rgba(99,102,241,.9)',borderWidth:2,pointRadius:0,
+     fill:false,borderDash:[8,3]}
   );
 
   chartInst = new Chart(ctx,{
@@ -606,7 +625,11 @@ function buildChart(data, d) {
 
   const levels = document.getElementById('chart-levels');
   if (supp.length||res.length)
-    levels.innerHTML=`<span style="color:var(--green)">▼ Support: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ Resistance: ${res.join(' / ')}</span>`;
+    levels.innerHTML=`<span style="color:var(--green)">▼ Support: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ Widerstand: ${res.join(' / ')}</span>`;
+
+  // Show EMA200 in legend if present
+  const ema200Legend = document.getElementById('ema200-legend');
+  if (ema200Legend) ema200Legend.style.display = hasEma200 ? 'inline' : 'none';
 }
 
 function renderIndicators(d) {
