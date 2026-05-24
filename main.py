@@ -574,6 +574,78 @@ def get_mini_futures(ticker: str, direction: str = "BUY"):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.get("/api/chart/{ticker}")
+def get_chart(ticker: str, period: str = "3mo"):
+    """Returns OHLCV + indicator data for charting, period-aware"""
+    import gc
+    valid_periods = ["1mo","3mo","6mo","ytd","1y","2y","5y"]
+    if period not in valid_periods:
+        period = "3mo"
+    try:
+        df = yf.download(ticker, period=period, interval="1d",
+                        progress=False, auto_adjust=True, timeout=15)
+        if df is None or df.empty:
+            raise HTTPException(404, "Keine Daten")
+        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        c = df["Close"].squeeze()
+        h = df["High"].squeeze()
+        l = df["Low"].squeeze()
+
+        # Bollinger Bands (adaptive period based on data length)
+        bb_period = min(20, max(5, len(c)//5))
+        sma = c.rolling(bb_period).mean()
+        std = c.rolling(bb_period).std()
+        bb_upper = sma + 2*std
+        bb_lower = sma - 2*std
+
+        # EMAs
+        ema20 = c.ewm(span=20, adjust=False).mean()
+        ema50 = c.ewm(span=50, adjust=False).mean()
+        ema200 = c.ewm(span=200, adjust=False).mean() if len(c) >= 50 else None
+
+        # Pivot Points (based on last candle)
+        prev_h = float(h.iloc[-2]); prev_l = float(l.iloc[-2]); prev_c = float(c.iloc[-2])
+        pivot = (prev_h + prev_l + prev_c) / 3
+        support_levels = [round(2*pivot - prev_h, 2), round(pivot - (prev_h - prev_l), 2)]
+        resistance_levels = [round(2*pivot - prev_l, 2), round(pivot + (prev_h - prev_l), 2)]
+
+        # Build chart data
+        chart_data = []
+        for i in range(len(df)):
+            try:
+                row = {
+                    "date": df.index[i].strftime("%Y-%m-%d"),
+                    "open": round(float(df["Open"].iloc[i]), 2),
+                    "high": round(float(df["High"].iloc[i]), 2),
+                    "low": round(float(df["Low"].iloc[i]), 2),
+                    "close": round(float(c.iloc[i]), 2),
+                    "volume": int(df["Volume"].iloc[i]) if "Volume" in df.columns else 0,
+                    "bb_upper": round(float(bb_upper.iloc[i]), 2) if not np.isnan(bb_upper.iloc[i]) else None,
+                    "bb_mid": round(float(sma.iloc[i]), 2) if not np.isnan(sma.iloc[i]) else None,
+                    "bb_lower": round(float(bb_lower.iloc[i]), 2) if not np.isnan(bb_lower.iloc[i]) else None,
+                    "ema20": round(float(ema20.iloc[i]), 2),
+                    "ema50": round(float(ema50.iloc[i]), 2),
+                }
+                if ema200 is not None:
+                    row["ema200"] = round(float(ema200.iloc[i]), 2)
+                chart_data.append(row)
+            except:
+                pass
+
+        del df, c, h, l, sma, std, bb_upper, bb_lower, ema20, ema50
+        gc.collect()
+
+        return {
+            "ticker": ticker, "period": period,
+            "data": chart_data,
+            "support_levels": support_levels,
+            "resistance_levels": resistance_levels
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 @app.get("/api/watchlist")
 def get_watchlist():
     """Returns ALL tickers with their current signal strength - for the watchlist tab"""

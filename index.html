@@ -263,12 +263,14 @@ main{padding:14px;max-width:800px;margin:0 auto}
       <!-- Chart Tab -->
       <div id="dtab-chart">
       <!-- Period selector -->
-      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-        <button class="period-btn active" onclick="setPeriod('1mo',this)">1M</button>
-        <button class="period-btn" onclick="setPeriod('3mo',this)">3M</button>
+      <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="period-btn" onclick="setPeriod('1mo',this)">1M</button>
+        <button class="period-btn active" onclick="setPeriod('3mo',this)">3M</button>
         <button class="period-btn" onclick="setPeriod('6mo',this)">6M</button>
+        <button class="period-btn" onclick="setPeriod('ytd',this)">YTD</button>
         <button class="period-btn" onclick="setPeriod('1y',this)">1J</button>
-        <button class="period-btn" onclick="resetZoom()" style="margin-left:auto;color:var(--gold)">⊙ Zoom reset</button>
+        <button class="period-btn" onclick="setPeriod('5y',this)">5J</button>
+        <button class="period-btn" onclick="resetZoom()" style="color:var(--gold)">⊙</button>
       </div>
         <div class="chart-container"><canvas id="price-chart" height="260" style="width:100%"></canvas></div>
         <div id="chart-levels" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
@@ -500,11 +502,38 @@ function renderChart(d) {
   buildChart(curChartData, d);
 }
 
-function setPeriod(period, btn) {
+async function setPeriod(period, btn) {
   document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  const days = period==='1mo'?30:period==='3mo'?90:period==='6mo'?180:365;
-  buildChart(curChartData.slice(-days), curSignal||{});
+  if (!curSignal) return;
+
+  // Map period to yfinance period string
+  const periodMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','ytd':'ytd','1y':'1y','5y':'5y'};
+  const yPeriod = periodMap[period] || '3mo';
+
+  // Show loading
+  const chartContainer = document.getElementById('price-chart');
+  chartContainer.style.opacity = '0.4';
+
+  try {
+    const res = await fetch(`${API}/api/chart/${encodeURIComponent(curSignal.ticker)}?period=${yPeriod}`);
+    const d = await res.json();
+    if (d.data && d.data.length) {
+      curChartData = d.data;
+      // Recalculate support/resistance for this period
+      const updatedSignal = {...curSignal, chart_data: d.data,
+        support_levels: d.support_levels || curSignal.support_levels || [],
+        resistance_levels: d.resistance_levels || curSignal.resistance_levels || []
+      };
+      buildChart(curChartData, updatedSignal);
+    }
+  } catch(e) {
+    // Fallback to cached data
+    const days = period==='1mo'?30:period==='3mo'?90:period==='6mo'?180:period==='5y'?1825:365;
+    buildChart(curChartData.slice(-days), curSignal||{});
+  } finally {
+    chartContainer.style.opacity = '1';
+  }
 }
 
 function resetZoom() {
@@ -539,18 +568,24 @@ function buildChart(data, d) {
     };
   });
 
+  const hasEma200 = data.some(x => x.ema200);
+  const datasets = [
+    {label:'Kurs',data:data.map(x=>x.close),borderColor:'#333',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:1},
+    {label:'BB Upper',data:data.map(x=>x.bb_upper),borderColor:'rgba(180,120,0,.4)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
+    {label:'BB Mitte',data:data.map(x=>x.bb_mid),borderColor:'rgba(180,120,0,.6)',borderWidth:1,pointRadius:0,fill:false},
+    {label:'BB Lower',data:data.map(x=>x.bb_lower),borderColor:'rgba(180,120,0,.4)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
+    {label:'EMA 20',data:data.map(x=>x.ema20),borderColor:'rgba(22,163,74,.8)',borderWidth:1.5,pointRadius:0,fill:false},
+    {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'rgba(220,38,38,.8)',borderWidth:1.5,pointRadius:0,fill:false},
+  ];
+  if (hasEma200) datasets.push(
+    {label:'EMA 200',data:data.map(x=>x.ema200||null),borderColor:'rgba(99,102,241,.8)',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[6,2]}
+  );
+
   chartInst = new Chart(ctx,{
     type:'line',
     data:{
       labels:data.map(x=>x.date.slice(5)),
-      datasets:[
-        {label:'Kurs',data:data.map(x=>x.close),borderColor:'#e8e8e8',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:1},
-        {label:'BB Upper',data:data.map(x=>x.bb_upper),borderColor:'rgba(240,180,41,.35)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
-        {label:'BB Mitte',data:data.map(x=>x.bb_mid),borderColor:'rgba(240,180,41,.6)',borderWidth:1,pointRadius:0,fill:false},
-        {label:'BB Lower',data:data.map(x=>x.bb_lower),borderColor:'rgba(240,180,41,.35)',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]},
-        {label:'EMA 20',data:data.map(x=>x.ema20),borderColor:'rgba(34,197,94,.7)',borderWidth:1.5,pointRadius:0,fill:false},
-        {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'rgba(239,68,68,.7)',borderWidth:1.5,pointRadius:0,fill:false},
-      ]
+      datasets
     },
     options:{
       responsive:true, maintainAspectRatio:true,
