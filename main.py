@@ -294,8 +294,99 @@ def full_analysis(ticker, name, min_strength=60):
     except Exception as e:
         return None
 
+def quick_score(ticker, name, min_strength):
+    """Lightweight version for scanning - no chart data, shorter period"""
+    import time, gc
+    try:
+        df = yf.download(ticker, period="3mo", interval="1d",
+                        progress=False, auto_adjust=True, timeout=8)
+        if df is None or df.empty or len(df) < 30:
+            return None
+        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        c = df["Close"].squeeze()
+        h = df["High"].squeeze()
+        l = df["Low"].squeeze()
+        price = float(c.iloc[-1])
+
+        # RSI
+        delta = c.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rsi = float((100 - 100/(1 + gain/loss.replace(0,np.nan))).iloc[-1])
+
+        # MACD
+        e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
+        macd_l=e12-e26; sig_l=macd_l.ewm(span=9,adjust=False).mean(); hist=macd_l-sig_l
+        mk,ms,mh,mhp=float(macd_l.iloc[-1]),float(sig_l.iloc[-1]),float(hist.iloc[-1]),float(hist.iloc[-2])
+
+        # Bollinger
+        sma20=c.rolling(20).mean(); std20=c.rolling(20).std()
+        pb=float(((c-(sma20-2*std20))/(4*std20)).iloc[-1])
+
+        # Stochastic
+        sk_s=100*(c-l.rolling(14).min())/(h.rolling(14).max()-l.rolling(14).min()).replace(0,np.nan)
+        sk,sd=float(sk_s.iloc[-1]),float(sk_s.rolling(3).mean().iloc[-1])
+
+        # EMA
+        e20=float(c.ewm(span=20).mean().iloc[-1]); e50=float(c.ewm(span=50).mean().iloc[-1])
+
+        # ATR
+        tr=pd.concat([h-l,(h-c.shift()).abs(),(l-c.shift()).abs()],axis=1).max(axis=1)
+        atr=float(tr.rolling(14).mean().iloc[-1])
+
+        # ADX
+        up_move=h.diff(); down_move=-l.diff()
+        pdm=np.where((up_move>down_move)&(up_move>0),up_move,0.0)
+        ndm=np.where((down_move>up_move)&(down_move>0),down_move,0.0)
+        pdi=100*pd.Series(pdm,index=c.index).rolling(14).mean()/tr.rolling(14).mean().replace(0,np.nan)
+        ndi=100*pd.Series(ndm,index=c.index).rolling(14).mean()/tr.rolling(14).mean().replace(0,np.nan)
+        adx=float(((pdi-ndi).abs()/(pdi+ndi).replace(0,np.nan)).rolling(14).mean().iloc[-1]*100)
+
+        # Free memory immediately
+        del df, c, h, l, tr, delta, gain, loss, e12, e26, macd_l, sig_l, hist
+        del sma20, std20, sk_s, up_move, down_move, pdm, ndm, pdi, ndi
+        gc.collect()
+
+        score=0; signals=[]
+        if rsi<30: score+=20; signals.append(f"RSI überverkauft ({rsi:.0f})")
+        elif rsi<40: score+=10; signals.append(f"RSI schwach ({rsi:.0f})")
+        elif rsi>70: score-=20; signals.append(f"RSI überkauft ({rsi:.0f})")
+        elif rsi>60: score-=10; signals.append(f"RSI stark ({rsi:.0f})")
+        if mk>ms and mh>mhp: score+=20; signals.append("MACD bullisch ↑")
+        elif mk<ms and mh<mhp: score-=20; signals.append("MACD bärisch ↓")
+        if pb<0.05: score+=20; signals.append("Unteres Bollinger Band")
+        elif pb<0.2: score+=10; signals.append("Nahe unterem BB")
+        elif pb>0.95: score-=20; signals.append("Oberes Bollinger Band")
+        elif pb>0.8: score-=10; signals.append("Nahe oberem BB")
+        if sk<20 and sk>sd: score+=15; signals.append(f"Stochastik dreht hoch ({sk:.0f})")
+        elif sk>80 and sk<sd: score-=15; signals.append(f"Stochastik dreht runter ({sk:.0f})")
+        if price>e20>e50: score+=10; signals.append("Auftrend EMA")
+        elif price<e20<e50: score-=10; signals.append("Abtrend EMA")
+        if adx>25:
+            if float(pdi.iloc[-1] if hasattr(pdi,'iloc') else 0) > float(ndi.iloc[-1] if hasattr(ndi,'iloc') else 0):
+                score+=10; signals.append(f"ADX Auftrend ({adx:.0f})")
+            else: score-=10; signals.append(f"ADX Abtrend ({adx:.0f})")
+
+        if abs(score) < min_strength: return None
+
+        direction="BUY" if score>0 else "SELL"
+        sl=round(price-1.5*atr,2) if direction=="BUY" else round(price+1.5*atr,2)
+        tp=round(price+3*atr,2) if direction=="BUY" else round(price-3*atr,2)
+
+        return {"ticker":ticker,"name":name,"price":round(price,2),"direction":direction,
+                "score":int(score),"strength":min(100,abs(int(score))),"signals":signals,
+                "stop_loss":sl,"take_profit":tp,"rsi":round(rsi,1),"atr":round(atr,2),
+                "indicators":{"RSI":round(rsi,1),"MACD":round(mk,4),"BB %B":round(pb,2),
+                               "Stoch %K":round(sk,1),"EMA 20":round(e20,2),"EMA 50":round(e50,2),
+                               "ADX":round(adx,1),"ATR":round(atr,2)},
+                "analyst":{},"chart_data":[],"support_levels":[],"resistance_levels":[],
+                "timestamp":datetime.now().isoformat()}
+    except Exception as e:
+        return None
+
 def run_analysis(min_strength):
     global _state
+    import time, gc
     with _lock:
         if _state.get("status") == "running": return
         _state["status"] = "running"
@@ -307,13 +398,17 @@ def run_analysis(min_strength):
     results = []
 
     for i, (name, ticker) in enumerate(items):
-        sig = full_analysis(ticker, name, min_strength)
+        sig = quick_score(ticker, name, min_strength)
         if sig:
             results.append(sig)
         results_sorted = sorted(results, key=lambda x: x["strength"], reverse=True)
         with _lock:
             _state["progress"] = round((i+1)/total*100)
             _state["results"] = results_sorted[:10]
+        # Small pause every 5 tickers to prevent memory overflow
+        if i % 5 == 4:
+            time.sleep(0.5)
+            gc.collect()
 
     with _lock:
         _state.update({
@@ -324,6 +419,7 @@ def run_analysis(min_strength):
             "total_analyzed": total,
             "timestamp": datetime.now().isoformat()
         })
+    gc.collect()
 
 # ── Mini Future Calculator ────────────────────────────────────────────────────
 def calc_mini_futures(ticker: str, direction: str, price: float, atr: float):
