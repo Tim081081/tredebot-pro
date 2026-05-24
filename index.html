@@ -632,17 +632,170 @@ function buildChart(data, d) {
   if (ema200Legend) ema200Legend.style.display = hasEma200 ? 'inline' : 'none';
 }
 
+// ── Indikator-Definitionen ────────────────────────────────────────────────────
+const IND_INFO = {
+  "RSI (14)": {
+    name: "Relative Stärke Index (RSI)",
+    calc: "Misst die Geschwindigkeit und Stärke von Kursbewegungen. Berechnet als Verhältnis von durchschnittlichen Kursgewinnen zu Kursverlusten über 14 Tage.",
+    signal: "🟢 Kaufsignal: RSI < 30 (überverkauft) | 🔴 Verkaufssignal: RSI > 70 (überkauft) | Neutral: 30–70"
+  },
+  "MACD": {
+    name: "Moving Average Convergence Divergence",
+    calc: "Differenz zwischen EMA 12 und EMA 26. Zeigt Trendrichtung und Momentum.",
+    signal: "🟢 Kaufsignal: MACD kreuzt Signallinie von unten | 🔴 Verkaufssignal: MACD kreuzt Signallinie von oben"
+  },
+  "MACD Signal": {
+    name: "MACD Signallinie",
+    calc: "9-Tage EMA des MACD. Glättet den MACD und erzeugt Handelssignale beim Kreuzungspunkt.",
+    signal: "🟢 Kaufsignal: MACD > Signallinie | 🔴 Verkaufssignal: MACD < Signallinie"
+  },
+  "BB %B": {
+    name: "Bollinger Bands %B",
+    calc: "Position des Kurses relativ zu den Bollinger Bändern. 0 = unteres Band, 1 = oberes Band, 0.5 = Mittellinie.",
+    signal: "🟢 Kaufsignal: %B < 0.05 (Kurs am unteren Band) | 🔴 Verkaufssignal: %B > 0.95 (Kurs am oberen Band)"
+  },
+  "BB Upper": {
+    name: "Bollinger Band Oberes Band",
+    calc: "20-Tage-Durchschnitt + 2 Standardabweichungen. Zeigt obere Volatilitätsgrenze.",
+    signal: "🔴 Verkaufssignal: Kurs berührt oder überschreitet das obere Band – mögliche Überkauft-Situation"
+  },
+  "BB Lower": {
+    name: "Bollinger Band Unteres Band",
+    calc: "20-Tage-Durchschnitt − 2 Standardabweichungen. Zeigt untere Volatilitätsgrenze.",
+    signal: "🟢 Kaufsignal: Kurs berührt oder unterschreitet das untere Band – mögliche Überverkauft-Situation"
+  },
+  "Stoch %K": {
+    name: "Stochastik %K (Schnelle Linie)",
+    calc: "Verhältnis von aktuellem Kurs zu Hoch-Tief-Spanne der letzten 14 Perioden. Wert zwischen 0 und 100.",
+    signal: "🟢 Kaufsignal: %K < 20 und dreht nach oben | 🔴 Verkaufssignal: %K > 80 und dreht nach unten"
+  },
+  "Stoch %D": {
+    name: "Stochastik %D (Langsame Linie)",
+    calc: "3-Tage-Glättung von %K. Fungiert als Signallinie für %K.",
+    signal: "🟢 Kaufsignal: %K kreuzt %D von unten im überverkauften Bereich (<20) | 🔴 Verkaufssignal: %K kreuzt %D von oben im überkauften Bereich (>80)"
+  },
+  "EMA 20": {
+    name: "Exponentieller Gleitender Durchschnitt (20 Tage)",
+    calc: "Gewichteter Durchschnitt der letzten 20 Schlusskurse. Neuere Kurse haben mehr Gewicht.",
+    signal: "🟢 Kaufsignal: Kurs > EMA 20 (kurzfristiger Auftrend) | 🔴 Verkaufssignal: Kurs < EMA 20 (kurzfristiger Abtrend)"
+  },
+  "EMA 50": {
+    name: "Exponentieller Gleitender Durchschnitt (50 Tage)",
+    calc: "Gewichteter Durchschnitt der letzten 50 Schlusskurse. Mittelfristiger Trendindikator.",
+    signal: "🟢 Kaufsignal: EMA 20 > EMA 50 (Golden Cross) | 🔴 Verkaufssignal: EMA 20 < EMA 50 (Death Cross)"
+  },
+  "EMA 100": {
+    name: "Exponentieller Gleitender Durchschnitt (100 Tage)",
+    calc: "Gewichteter Durchschnitt der letzten 100 Schlusskurse. Mittelfristiger bis langfristiger Trendindikator.",
+    signal: "🟢 Kaufsignal: Kurs > EMA 100 (mittelfristiger Auftrend) | 🔴 Verkaufssignal: Kurs < EMA 100"
+  },
+  "EMA 200": {
+    name: "Exponentieller Gleitender Durchschnitt (200 Tage)",
+    calc: "Gewichteter Durchschnitt der letzten 200 Schlusskurse. Der wichtigste langfristige Trendindikator.",
+    signal: "🟢 Kaufsignal: Kurs > EMA 200 (langfristiger Bullenmarkt) | 🔴 Verkaufssignal: Kurs < EMA 200 (langfristiger Bärenmarkt)"
+  },
+  "ADX": {
+    name: "Average Directional Index",
+    calc: "Misst die Stärke eines Trends (nicht die Richtung). Berechnet aus +DI und -DI über 14 Perioden.",
+    signal: "ADX > 25: Starker Trend (Richtung durch +DI/-DI bestimmt) | ADX < 20: Kein klarer Trend | ADX > 40: Sehr starker Trend"
+  },
+  "+DI": {
+    name: "Positiver Richtungsindikator (+DI)",
+    calc: "Misst die Stärke der Aufwärtsbewegung. Teil des ADX-Systems.",
+    signal: "🟢 Kaufsignal: +DI > -DI (Aufwärtstrend dominiert) | 🔴 Verkaufssignal: +DI < -DI"
+  },
+  "-DI": {
+    name: "Negativer Richtungsindikator (-DI)",
+    calc: "Misst die Stärke der Abwärtsbewegung. Teil des ADX-Systems.",
+    signal: "🔴 Verkaufssignal: -DI > +DI (Abwärtstrend dominiert)"
+  },
+  "Williams %R": {
+    name: "Williams Percent Range",
+    calc: "Misst wie nah der Schlusskurs am Hoch der letzten 14 Perioden ist. Wert zwischen 0 und -100.",
+    signal: "🟢 Kaufsignal: Williams %R < -80 (überverkauft) | 🔴 Verkaufssignal: Williams %R > -20 (überkauft)"
+  },
+  "CCI (20)": {
+    name: "Commodity Channel Index (20 Perioden)",
+    calc: "Misst Abweichung des Kurses vom statistischen Durchschnitt. Zeigt zyklische Extrempunkte.",
+    signal: "🟢 Kaufsignal: CCI < -100 (überverkauft) | 🔴 Verkaufssignal: CCI > +100 (überkauft)"
+  },
+  "OBV Trend": {
+    name: "On-Balance Volume Trend",
+    calc: "Kumuliertes Volumen-Momentum. Steigt wenn Kurs mit hohem Volumen steigt, fällt bei hohem Abwärtsvolumen.",
+    signal: "🟢 Kaufsignal: OBV steigt (Bullisches Kaufvolumen dominiert) | 🔴 Verkaufssignal: OBV fällt (Bärisches Verkaufsvolumen dominiert)"
+  },
+  "ATR (14)": {
+    name: "Average True Range (14 Perioden)",
+    calc: "Durchschnittliche Kursschwankung pro Handelstag über 14 Perioden. Misst Volatilität.",
+    signal: "Kein direktes Kauf/Verkauf-Signal. Wird für Stop-Loss-Berechnung verwendet: Stop Loss = Kurs ± 1,5 × ATR"
+  },
+  "ATR %": {
+    name: "ATR in Prozent des Kurses",
+    calc: "ATR dividiert durch aktuellen Kurs × 100. Zeigt Volatilität relativ zum Kursniveau.",
+    signal: "Hohe ATR%: Volatiler Markt – größere Stop-Loss-Abstände nötig | Niedrige ATR%: Ruhiger Markt"
+  },
+  "Pivot": {
+    name: "Pivot Point",
+    calc: "Berechnet als (Hoch + Tief + Schluss) / 3 des Vortages. Zentraler Referenzpunkt.",
+    signal: "🟢 Kaufsignal: Kurs hält sich über Pivot | 🔴 Verkaufssignal: Kurs fällt unter Pivot"
+  },
+  "R1": { name: "Widerstand 1 (R1)", calc: "R1 = 2 × Pivot − Tief (Vortag). Erster Widerstandsbereich über dem Pivot.", signal: "🔴 Verkaufssignal: Kurs nähert sich R1 von unten (Widerstandszone)" },
+  "R2": { name: "Widerstand 2 (R2)", calc: "R2 = Pivot + (Hoch − Tief) (Vortag). Zweiter stärkerer Widerstandsbereich.", signal: "🔴 Starkes Verkaufssignal: Kurs nähert sich R2 – starker Widerstand" },
+  "S1": { name: "Unterstützung 1 (S1)", calc: "S1 = 2 × Pivot − Hoch (Vortag). Erster Unterstützungsbereich unter dem Pivot.", signal: "🟢 Kaufsignal: Kurs hält an S1 (Unterstützungszone)" },
+  "S2": { name: "Unterstützung 2 (S2)", calc: "S2 = Pivot − (Hoch − Tief) (Vortag). Zweiter stärkerer Unterstützungsbereich.", signal: "🟢 Starkes Kaufsignal: Kurs hält an S2 – starke Unterstützung" },
+  "52W Hoch": { name: "52-Wochen-Hoch", calc: "Höchster Kurs der letzten 52 Wochen.", signal: "🔴 Verkaufssignal: Kurs nähert sich dem Jahreshoch – möglicher Widerstand" },
+  "52W Tief": { name: "52-Wochen-Tief", calc: "Niedrigster Kurs der letzten 52 Wochen.", signal: "🟢 Kaufsignal: Kurs nähert sich dem Jahrestief – mögliche Unterstützung" },
+  "52W Position": { name: "Position im 52-Wochen-Band", calc: "Zeigt wo der aktuelle Kurs im Verhältnis zu Jahreshoch und Jahrestief steht. 0% = Jahrestief, 100% = Jahreshoch.", signal: "🟢 Kaufsignal: < 15% (nahe Jahrestief) | 🔴 Verkaufssignal: > 85% (nahe Jahreshoch)" },
+  "ROC (10)": { name: "Rate of Change (10 Perioden)", calc: "Prozentuale Kursänderung über 10 Handelstage. Misst kurzfristiges Momentum.", signal: "🟢 Kaufsignal: ROC positiv und steigend | 🔴 Verkaufssignal: ROC negativ und fallend | Extreme Werte (>5% oder <-5%) können Trendumkehr signalisieren" },
+  "Analysten": { name: "Analysten-Konsensempfehlung", calc: "Aggregierte Empfehlung aller verfügbaren Analysten via Yahoo Finance. Skala: 1=Starker Kauf bis 5=Starker Verkauf.", signal: "🟢 Kaufsignal: Empfehlung 1–2 (Kauf/Starker Kauf) | 🔴 Verkaufssignal: Empfehlung 4–5 | Neutral: 3 (Halten)" },
+  "Kursziel": { name: "Analysten-Kursziel (Durchschnitt)", calc: "Durchschnittliches Kursziel aller Analysten. Zeigt erwartetes Kurspotenzial.", signal: "🟢 Kaufsignal: Kursziel deutlich über aktuellem Kurs (>10%) | 🔴 Verkaufssignal: Kursziel unter aktuellem Kurs" },
+};
+
+function showIndInfo(key) {
+  const info = IND_INFO[key];
+  if (!info) return;
+  let popup = document.getElementById('ind-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'ind-popup';
+    popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    popup.onclick = (e) => { if(e.target===popup) popup.remove(); };
+    document.body.appendChild(popup);
+  }
+  popup.innerHTML = `<div style="background:var(--bg);border-radius:16px;padding:20px;max-width:420px;width:100%;border:1px solid var(--b);max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);flex:1">${info.name}</div>
+      <button onclick="document.getElementById('ind-popup').remove()" style="background:var(--s2);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;margin-left:8px;flex-shrink:0">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Berechnung</div>
+    <div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:14px">${info.calc}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Handelssignale</div>
+    <div style="font-size:13px;line-height:1.8">${info.signal.replace(/🟢/g,'<span style="color:var(--green)">🟢</span>').replace(/🔴/g,'<span style="color:var(--red)">🔴</span>')}</div>
+  </div>`;
+}
+
 function renderIndicators(d) {
   const ind = d.indicators||{};
   const tbody = document.getElementById('ind-body');
-  tbody.innerHTML = Object.entries(ind).map(([k,v])=>`
-    <tr><td style="color:var(--muted)">${k}</td><td style="font-family:monospace;text-align:right;color:var(--text)">${v}</td></tr>`).join('');
+  tbody.innerHTML = Object.entries(ind).map(([k,v])=>{
+    const hasInfo = !!IND_INFO[k];
+    return `<tr>
+      <td style="color:var(--muted)">
+        ${k}
+        ${hasInfo?`<button onclick="showIndInfo('${k}')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>`:''}
+      </td>
+      <td style="font-family:monospace;text-align:right;color:var(--text)">${v}</td>
+    </tr>`;
+  }).join('');
   if (d.analyst?.recommendation) {
     tbody.innerHTML += `
-      <tr><td colspan="2" style="background:var(--s2);color:var(--gold);font-size:11px;padding:6px 8px;text-transform:uppercase;letter-spacing:.5px">Analysten</td></tr>
+      <tr><td colspan="2" style="background:var(--s2);color:var(--gold);font-size:11px;padding:6px 8px;text-transform:uppercase;letter-spacing:.5px">
+        Analysten
+        <button onclick="showIndInfo('Analysten')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>
+      </td></tr>
       <tr><td style="color:var(--muted)">Empfehlung</td><td style="font-family:monospace;text-align:right;color:var(--gold)">${d.analyst.recommendation}</td></tr>
-      <tr><td style="color:var(--muted)">Analysten Anzahl</td><td style="font-family:monospace;text-align:right">${d.analyst.analysts}</td></tr>
-      ${d.analyst.target?`<tr><td style="color:var(--muted)">Kursziel</td><td style="font-family:monospace;text-align:right">${fmt(d.analyst.target)}</td></tr>`:''}`;
+      <tr><td style="color:var(--muted)">Anzahl Analysten</td><td style="font-family:monospace;text-align:right">${d.analyst.analysts}</td></tr>
+      ${d.analyst.target?`<tr><td style="color:var(--muted)">Kursziel <button onclick="showIndInfo('Kursziel')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button></td><td style="font-family:monospace;text-align:right">${fmt(d.analyst.target)}</td></tr>`:''}`;
   }
 }
 
