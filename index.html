@@ -114,6 +114,11 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .ind-table th{text-align:left;padding:6px 8px;background:var(--s2);color:var(--gold);font-size:11px;text-transform:uppercase}
 .ind-table td{padding:6px 8px;border-bottom:1px solid var(--b)}
 .ind-table tr:last-child td{border:none}
+.ind-signal{display:inline-block;font-size:13px;line-height:1;vertical-align:middle}
+.ind-threshold{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.4}
+.ind-val-buy{color:var(--green);font-weight:700}
+.ind-val-sell{color:var(--red);font-weight:700}
+.ind-val-neutral{color:var(--text)}
 .dtabs{display:flex;border-bottom:1px solid var(--b);margin-bottom:14px}
 .dtab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
 .dtab.active{color:var(--gold);border-bottom-color:var(--gold)}
@@ -290,7 +295,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
       <!-- Indicators Tab -->
       <div id="dtab-indicators" style="display:none">
         <table class="ind-table" id="ind-table">
-          <thead><tr><th>Indikator</th><th style="text-align:right">Wert</th></tr></thead>
+          <thead><tr><th>Indikator</th><th style="text-align:center;width:36px">Signal</th><th style="text-align:right">Wert</th><th style="text-align:right;min-width:100px">Schwellenwerte</th></tr></thead>
           <tbody id="ind-body"></tbody>
         </table>
       </div>
@@ -864,28 +869,140 @@ function showIndInfo(key) {
   </div>`;
 }
 
+// ── Indicator signal evaluation ───────────────────────────────────────────────
+function evalIndicator(key, rawVal) {
+  // Returns {signal:'buy'|'sell'|'neutral', emoji, thresholds:string, valClass}
+  const v = parseFloat(rawVal);
+  const na = {signal:'neutral', emoji:'⚪', thresholds:'', valClass:'ind-val-neutral'};
+  if (isNaN(v)) {
+    // Handle string values
+    const s = String(rawVal).toLowerCase();
+    if (key === 'OBV Trend') {
+      if (s.includes('bull')) return {signal:'buy', emoji:'🟢', thresholds:'Bullisch = Kauf · Bärisch = Verkauf', valClass:'ind-val-buy'};
+      if (s.includes('bär')) return {signal:'sell', emoji:'🔴', thresholds:'Bullisch = Kauf · Bärisch = Verkauf', valClass:'ind-val-sell'};
+    }
+    return na;
+  }
+  switch(key) {
+    case 'RSI (14)':
+      if (v < 30) return {signal:'buy',  emoji:'🟢', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-buy'};
+      if (v < 40) return {signal:'buy',  emoji:'🟡', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-buy'};
+      if (v > 70) return {signal:'sell', emoji:'🔴', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-sell'};
+      if (v > 60) return {signal:'sell', emoji:'🟠', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-neutral'};
+    case 'BB %B':
+      if (v < 0.05) return {signal:'buy',  emoji:'🟢', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-buy'};
+      if (v < 0.2)  return {signal:'buy',  emoji:'🟡', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-buy'};
+      if (v > 0.95) return {signal:'sell', emoji:'🔴', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-sell'};
+      if (v > 0.8)  return {signal:'sell', emoji:'🟠', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-neutral'};
+    case 'Stoch %K':
+    case 'Stoch %D':
+      if (v < 20) return {signal:'buy',  emoji:'🟢', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-buy'};
+      if (v > 80) return {signal:'sell', emoji:'🔴', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-neutral'};
+    case 'Williams %R':
+      if (v < -80) return {signal:'buy',  emoji:'🟢', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-buy'};
+      if (v > -20) return {signal:'sell', emoji:'🔴', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-neutral'};
+    case 'CCI (20)':
+      if (v < -100) return {signal:'buy',  emoji:'🟢', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-buy'};
+      if (v > 100)  return {signal:'sell', emoji:'🔴', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-neutral'};
+    case 'ADX':
+      if (v > 40) return {signal:'buy',  emoji:'🟢', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend · > 40 sehr stark', valClass:'ind-val-buy'};
+      if (v > 25) return {signal:'buy',  emoji:'🟡', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend · > 40 sehr stark', valClass:'ind-val-buy'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend', valClass:'ind-val-neutral'};
+    case '+DI':
+    case '-DI':
+      return {signal:'neutral', emoji:'⚪', thresholds:'+DI > −DI = Auftrend · −DI > +DI = Abtrend', valClass:'ind-val-neutral'};
+    case '52W Position':
+      if (v < 15) return {signal:'buy',  emoji:'🟢', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-buy'};
+      if (v > 85) return {signal:'sell', emoji:'🔴', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-neutral'};
+    case 'MACD':
+    case 'MACD Signal':
+      if (v > 0) return {signal:'buy',  emoji:'🟢', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-buy'};
+      if (v < 0) return {signal:'sell', emoji:'🔴', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-sell'};
+      return {signal:'neutral', emoji:'⚪', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-neutral'};
+    default:
+      return na;
+  }
+}
+
 function renderIndicators(d) {
   const ind = d.indicators||{};
   const tbody = document.getElementById('ind-body');
-  tbody.innerHTML = Object.entries(ind).map(([k,v])=>{
+
+  // Group rows by category for section headers
+  const categories = {
+    'Momentum': ['RSI (14)', 'MACD', 'MACD Signal', 'Williams %R', 'CCI (20)', 'ROC (10)'],
+    'Volatilität': ['BB %B', 'BB Upper', 'BB Lower', 'ATR (14)', 'ATR %'],
+    'Trend': ['Stoch %K', 'Stoch %D', 'EMA 20', 'EMA 50', 'EMA 100', 'EMA 200', 'ADX', '+DI', '-DI', 'OBV Trend'],
+    'Level': ['Pivot', 'R1', 'R2', 'S1', 'S2', '52W Hoch', '52W Tief', '52W Position'],
+  };
+  const catOrder = ['Momentum', 'Volatilität', 'Trend', 'Level'];
+  const assigned = new Set();
+
+  let html = '';
+
+  const renderRow = (k, v) => {
+    assigned.add(k);
     const hasInfo = !!IND_INFO[k];
+    const ev = evalIndicator(k, v);
+    // Format value display with color class
+    const displayVal = String(v);
     return `<tr>
       <td style="color:var(--muted)">
         ${k}
         ${hasInfo?`<button onclick="showIndInfo('${k}')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>`:''}
       </td>
-      <td style="font-family:monospace;text-align:right;color:var(--text)">${v}</td>
+      <td style="text-align:center"><span class="ind-signal">${ev.emoji}</span></td>
+      <td style="font-family:monospace;text-align:right" class="${ev.valClass}">${displayVal}</td>
+      <td style="text-align:right"><div class="ind-threshold">${ev.thresholds||'—'}</div></td>
     </tr>`;
-  }).join('');
+  };
+
+  catOrder.forEach(cat => {
+    const keys = categories[cat].filter(k => ind[k] !== undefined);
+    if (!keys.length) return;
+    html += `<tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">${cat}</td></tr>`;
+    keys.forEach(k => { html += renderRow(k, ind[k]); });
+  });
+
+  // Any remaining keys not in categories
+  const remaining = Object.entries(ind).filter(([k]) => !assigned.has(k));
+  if (remaining.length) {
+    html += `<tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Sonstige</td></tr>`;
+    remaining.forEach(([k,v]) => { html += renderRow(k, v); });
+  }
+
+  tbody.innerHTML = html;
+
   if (d.analyst?.recommendation) {
+    const rec = d.analyst.recommendation;
+    const recSignal = rec.includes('Kauf') ? '🟢' : rec.includes('Verkauf') ? '🔴' : '⚪';
+    const recClass = rec.includes('Kauf') ? 'ind-val-buy' : rec.includes('Verkauf') ? 'ind-val-sell' : 'ind-val-neutral';
     tbody.innerHTML += `
-      <tr><td colspan="2" style="background:var(--s2);color:var(--gold);font-size:11px;padding:6px 8px;text-transform:uppercase;letter-spacing:.5px">
+      <tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">
         Analysten
         <button onclick="showIndInfo('Analysten')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>
       </td></tr>
-      <tr><td style="color:var(--muted)">Empfehlung</td><td style="font-family:monospace;text-align:right;color:var(--gold)">${d.analyst.recommendation}</td></tr>
-      <tr><td style="color:var(--muted)">Anzahl Analysten</td><td style="font-family:monospace;text-align:right">${d.analyst.analysts}</td></tr>
-      ${d.analyst.target?`<tr><td style="color:var(--muted)">Kursziel <button onclick="showIndInfo('Kursziel')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button></td><td style="font-family:monospace;text-align:right">${fmt(d.analyst.target)}</td></tr>`:''}`;
+      <tr>
+        <td style="color:var(--muted)">Empfehlung</td>
+        <td style="text-align:center"><span class="ind-signal">${recSignal}</span></td>
+        <td style="font-family:monospace;text-align:right" class="${recClass}">${rec}</td>
+        <td><div class="ind-threshold">1–2 Kauf · 3 Halten · 4–5 Verkauf</div></td>
+      </tr>
+      <tr>
+        <td style="color:var(--muted)">Anzahl Analysten</td>
+        <td></td><td style="font-family:monospace;text-align:right">${d.analyst.analysts}</td><td></td>
+      </tr>
+      ${d.analyst.target?`<tr>
+        <td style="color:var(--muted)">Kursziel <button onclick="showIndInfo('Kursziel')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button></td>
+        <td></td><td style="font-family:monospace;text-align:right">${fmt(d.analyst.target)}</td>
+        <td><div class="ind-threshold">Kursziel der Analysten</div></td>
+      </tr>`:''}`;
   }
 }
 
