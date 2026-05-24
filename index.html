@@ -801,9 +801,54 @@ async function loadStrength() {
   } catch(e){}
 }
 
+// ── Portfolio Backup/Restore (survives server restarts) ───────────────────────
+async function backupPortfolio() {
+  try {
+    const res = await fetch(`${API}/api/portfolio/backup`);
+    const data = await res.json();
+    if (data.closed_trades !== undefined) {
+      localStorage.setItem('tb_portfolio_backup', JSON.stringify(data));
+      localStorage.setItem('tb_portfolio_backup_time', new Date().toISOString());
+    }
+  } catch(e) {}
+}
+
+async function restorePortfolioIfNeeded() {
+  try {
+    // Check if server portfolio is empty (fresh restart)
+    const res = await fetch(`${API}/api/portfolio`);
+    const data = await res.json();
+    const serverEmpty = data.portfolio?.closed_trades?.length === 0 &&
+                        data.portfolio?.positions?.length === 0 &&
+                        Math.abs((data.portfolio?.cash||0) - 10000) < 0.01;
+
+    const backup = localStorage.getItem('tb_portfolio_backup');
+    if (serverEmpty && backup) {
+      const backupData = JSON.parse(backup);
+      const backupHasTrades = backupData.closed_trades?.length > 0 ||
+                              backupData.positions?.length > 0 ||
+                              Math.abs((backupData.cash||0) - 10000) > 0.01;
+      if (backupHasTrades) {
+        // Restore from backup
+        await fetch(`${API}/api/portfolio/restore`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: backup
+        });
+        toast('📂 Portfolio nach Server-Neustart wiederhergestellt', 'ok');
+      }
+    }
+  } catch(e) {}
+}
+
+// Auto-backup every 2 minutes when app is active
+setInterval(backupPortfolio, 120000);
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadSignals();
 loadStrength();
+// Restore portfolio on startup if server was restarted
+setTimeout(restorePortfolioIfNeeded, 3000);
 setInterval(()=>{if(document.getElementById('page-signals').classList.contains('active'))loadSignals();},300000);
 </script>
 </body>
