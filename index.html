@@ -294,7 +294,7 @@ function showTab(name) {
   const tabs = ['signals','portfolio','history','settings'];
   document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
   document.getElementById('page-'+name).classList.add('active');
-  if (name==='portfolio'||name==='history') loadPortfolio();
+  if (name==='portfolio'||name==='history') { loadPortfolio(); restorePortfolioIfNeeded(); }
 }
 
 function showDTab(name) {
@@ -649,6 +649,7 @@ async function placeMFOrderInline(i) {
       toast(`✅ Mini-Future x${product.leverage} ins Depot gebucht! (−10€ Gebühr)`,'ok');
       document.getElementById('mf-order-'+i).style.display='none';
       document.getElementById('mfc'+i).classList.remove('sel');
+      setTimeout(backupPortfolio, 1000);
     } else toast(`❌ ${d.detail}`,'err');
   } catch(e){toast('Fehler beim Buchen','err');}
 }
@@ -781,8 +782,11 @@ async function closeTrade(id, price) {
   try {
     const res=await fetch(`${API}/api/trade/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trade_id:id,close_price:price})});
     const d=await res.json();
-    if (res.ok){toast(`Geschlossen: ${d.trade?.pnl>=0?'+':''}${fmt(d.trade?.pnl)}€ (nach Gebühren)`,d.trade?.pnl>=0?'ok':'err');loadPortfolio();}
-    else toast(d.detail,'err');
+    if (res.ok){
+      toast(`Geschlossen: ${d.trade?.pnl>=0?'+':''}${fmt(d.trade?.pnl)}€ (nach Gebühren)`,d.trade?.pnl>=0?'ok':'err');
+      loadPortfolio();
+      setTimeout(backupPortfolio, 1000);
+    } else toast(d.detail,'err');
   } catch(e){toast('Fehler','err');}
 }
 
@@ -847,6 +851,10 @@ async function restorePortfolioIfNeeded() {
 
 // Auto-backup every 2 minutes when app is active
 setInterval(backupPortfolio, 120000);
+// Also backup when page becomes visible again (switching back to browser)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) backupPortfolio();
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadSignals();
