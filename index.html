@@ -12,7 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-:root{--bg:#ffffff;--s1:#f5f5f5;--s2:#ebebeb;--b:#d0d0d0;--gold:#1a73e8;--green:#16a34a;--red:#ef4444;--text:#111111;--muted:#777;--r:12px}
+:root{--bg:#ffffff;--s1:#f5f5f5;--s2:#ebebeb;--b:#d0d0d0;--gold:#1a73e8;--green:#16a34a;--red:#ef4444;--orange:#d97706;--text:#111111;--muted:#777;--r:12px}
 body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 header{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border-bottom:1px solid var(--b);padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
 .logo{display:flex;align-items:center;gap:10px}
@@ -28,10 +28,11 @@ nav{display:flex;background:var(--s1);border-bottom:1px solid var(--b)}
 main{padding:14px;max-width:800px;margin:0 auto}
 .page{display:none}.page.active{display:block}
 .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.stats-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
 .stat-card{background:var(--s1);border:1px solid var(--b);border-radius:var(--r);padding:12px;text-align:center}
 .stat-value{font-size:18px;font-weight:700;font-family:monospace}
 .stat-label{font-size:9px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
-.gold{color:var(--gold)}.pos{color:var(--green)}.neg{color:var(--red)}
+.gold{color:var(--gold)}.pos{color:var(--green)}.neg{color:var(--red)}.warn{color:var(--orange)}
 .section-title{font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.5px;margin:16px 0 8px}
 .signal-card{background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:10px;cursor:pointer;transition:border-color .2s}
 .signal-card:hover{border-color:var(--gold)}
@@ -43,6 +44,14 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700}
 .badge-buy{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3)}
 .badge-sell{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.badge-phase{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;margin-left:4px}
+.badge-trend{background:rgba(26,115,232,.12);color:var(--gold)}
+.badge-side{background:rgba(150,150,150,.12);color:var(--muted)}
+.badge-volwarn{background:rgba(239,68,68,.12);color:var(--red)}
+.confirm-dots{display:flex;gap:3px;margin-left:6px}
+.confirm-dot{width:8px;height:8px;border-radius:50%;background:var(--b)}
+.confirm-dot.on{background:var(--green)}
+.confirm-dot.on-sell{background:var(--red)}
 .prices{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
 .price-item{text-align:center}
 .price-label{font-size:9px;color:var(--muted);text-transform:uppercase}
@@ -51,6 +60,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .strength-fill{height:100%;border-radius:2px}
 .signal-tags{font-size:11px;color:var(--muted);margin-bottom:10px}
 .signal-tags span{display:inline-block;background:var(--b);padding:2px 8px;border-radius:8px;margin:2px 2px 0 0}
+.signal-tags span.warn-tag{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2)}
 .amount-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .amount-input{flex:1;padding:8px 10px;border-radius:8px;background:var(--b);border:1px solid #444;color:var(--text);font-size:13px;font-family:monospace}
 .btn{padding:10px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;width:100%;margin-bottom:6px}
@@ -58,7 +68,9 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .btn-buy{background:var(--green);color:#000}
 .btn-sell{background:var(--red);color:#fff}
 .btn-secondary{background:var(--b);color:var(--text)}
-.btn-gold{background:var(--gold);color:#000}
+.btn-gold{background:var(--gold);color:#fff}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-sm{padding:7px 14px;font-size:12px;border-radius:8px;border:none;cursor:pointer;font-weight:600}
 .pos-card{background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:10px}
 .pos-details{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;margin-top:8px}
 .pd-label{color:var(--muted)}.pd-value{font-family:monospace;font-weight:600;font-size:12px}
@@ -71,16 +83,19 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .setting-row:last-child{border:none}
 .setting-label{font-size:14px;font-weight:600}
 .setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
-.toggle{width:44px;height:24px;border-radius:12px;background:var(--b);border:none;cursor:pointer;position:relative;transition:background .2s}
-.toggle.on{background:var(--gold)}
-.toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:white;transition:transform .2s}
-.toggle.on::after{transform:translateX(20px)}
+.limit-bar{height:6px;background:var(--b);border-radius:3px;overflow:hidden;margin-top:6px}
+.limit-fill{height:6px;border-radius:3px;transition:width .4s}
+.limit-ok{background:var(--green)}
+.limit-warn{background:var(--orange)}
+.limit-full{background:var(--red)}
 .progress-container{background:var(--s1);border:1px solid var(--b);border-radius:var(--r);padding:20px;margin-bottom:12px;text-align:center}
 .progress-bar-bg{background:var(--b);border-radius:4px;height:8px;margin:12px 0}
 .progress-bar-fill{background:var(--gold);height:8px;border-radius:4px;transition:width .5s}
 .exit-card{border-radius:var(--r);padding:14px;margin-bottom:10px}
 .exit-card.urgent{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4)}
 .exit-card.warn{background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.4)}
+.vol-warning{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:var(--red)}
+.analyst-info{background:rgba(26,115,232,.06);border:1px solid rgba(26,115,232,.15);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:var(--gold)}
 /* Modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;overflow-y:auto}
 .modal.open{display:block}
@@ -104,33 +119,24 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .wl-ticker{font-size:10px;color:var(--muted);font-family:monospace}
 .wl-price{font-family:monospace;font-size:13px;font-weight:600;text-align:right;min-width:60px}
 .wl-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:8px;min-width:52px;text-align:center}
-.wl-strength{font-size:10px;color:var(--muted);margin-left:6px;min-width:36px;text-align:right}
-@media (orientation: landscape) {
-  .chart-container canvas{height:85vw !important;max-height:85vw;}
-  .modal-body{padding:8px;}
-  #dtab-chart{max-height:100vh;overflow-y:auto;}
-}
 .ind-table{width:100%;border-collapse:collapse;font-size:12px}
 .ind-table th{text-align:left;padding:6px 8px;background:var(--s2);color:var(--gold);font-size:11px;text-transform:uppercase}
 .ind-table td{padding:6px 8px;border-bottom:1px solid var(--b)}
 .ind-table tr:last-child td{border:none}
-.ind-signal{display:inline-block;font-size:13px;line-height:1;vertical-align:middle}
-.ind-threshold{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.4}
-.ind-val-buy{color:var(--green);font-weight:700}
-.ind-val-sell{color:var(--red);font-weight:700}
-.ind-val-neutral{color:var(--text)}
+.ind-analyst-row td{background:rgba(26,115,232,.04);color:var(--muted);font-style:italic}
 .dtabs{display:flex;border-bottom:1px solid var(--b);margin-bottom:14px}
 .dtab{flex:1;padding:10px;text-align:center;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
 .dtab.active{color:var(--gold);border-bottom-color:var(--gold)}
 .mf-card{background:var(--s2);border:1px solid var(--b);border-radius:var(--r);padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
 .mf-card:hover,.mf-card.sel{border-color:var(--gold)}
-.mf-card.sel{background:rgba(240,180,41,.08)}
+.mf-card.sel{background:rgba(26,115,232,.06)}
 .mf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:11px;margin-top:8px}
 .mf-label{color:var(--muted)}.mf-val{font-family:monospace;font-weight:600}
 .risk-low{color:var(--green)}.risk-mid{color:var(--gold)}.risk-high{color:var(--red)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .period-btn{padding:5px 10px;border-radius:8px;background:var(--b);border:1px solid var(--b);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s}
 .period-btn.active,.period-btn:hover{background:var(--s2);border-color:var(--gold);color:var(--gold)}
+@media (orientation:landscape){.chart-container canvas{height:85vw !important;max-height:85vw;}.modal-body{padding:8px;}#dtab-chart{max-height:100vh;overflow-y:auto;}}
 </style>
 </head>
 <body>
@@ -163,7 +169,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
       <div class="stat-card"><div class="stat-value gold" id="s-top">—</div><div class="stat-label">Top Signal</div></div>
     </div>
     <div id="progress-area"></div>
-    <div class="section-title">📡 Handelssignale <span style="font-size:10px;font-weight:400;color:var(--muted)">· Tippen für Details & Mini-Futures</span></div>
+    <div class="section-title">📡 Handelssignale <span style="font-size:10px;font-weight:400;color:var(--muted)">· mind. 2/3 Gruppen bestätigt · Tippen für Details</span></div>
     <div id="signals-list"></div>
   </div>
 
@@ -196,6 +202,8 @@ main{padding:14px;max-width:800px;margin:0 auto}
       <div class="stat-card"><div class="stat-value pos" id="p-wr">—</div><div class="stat-label">Win Rate</div></div>
       <div class="stat-card"><div class="stat-value neg" id="p-fees">—</div><div class="stat-label">Gebühren</div></div>
     </div>
+    <!-- Portfolio-Risikolimits -->
+    <div id="portfolio-limits"></div>
     <div class="section-title">🚨 Exit-Signale</div>
     <div id="exit-list"></div>
     <div class="section-title">📊 Offene Positionen</div>
@@ -213,16 +221,24 @@ main{padding:14px;max-width:800px;margin:0 auto}
     <div class="section-title">⚙️ Einstellungen</div>
     <div class="card">
       <div class="setting-row">
-        <div><div class="setting-label">E-Mail-Benachrichtigungen</div><div class="setting-sub">dieter_kammer@gmx.de</div></div>
-        <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-      </div>
-      <div class="setting-row">
         <div><div class="setting-label">Paper Trading</div><div class="setting-sub">Virtuelles Kapital: 10.000€</div></div>
-        <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+        <span class="gold" style="font-size:12px;font-weight:600">Aktiv</span>
       </div>
       <div class="setting-row">
         <div><div class="setting-label">Ordergebühr (je Trade)</div><div class="setting-sub">Kauf + Verkauf = 20€ gesamt</div></div>
         <span class="neg" style="font-family:monospace;font-weight:700">10€</span>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Max. Positionen</div><div class="setting-sub">Portfolio-Risikolimit</div></div>
+        <span class="gold" style="font-family:monospace;font-weight:700">5</span>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Max. Exposure</div><div class="setting-sub">Offene Positionen in % des Portfolios</div></div>
+        <span class="gold" style="font-family:monospace;font-weight:700">40%</span>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Risiko pro Trade</div><div class="setting-sub">Position Sizing (2% des Gesamtkapitals)</div></div>
+        <span class="gold" style="font-family:monospace;font-weight:700">2%</span>
       </div>
     </div>
     <div class="section-title">📈 Analyseparameter</div>
@@ -233,7 +249,7 @@ main{padding:14px;max-width:800px;margin:0 auto}
           <span class="gold" style="font-family:monospace;font-weight:700" id="str-display">20</span>
         </div>
         <input type="range" id="str-slider" min="10" max="80" value="20" step="5"
-          style="width:100%;accent-color:#f0b429"
+          style="width:100%;accent-color:var(--gold)"
           oninput="document.getElementById('str-display').textContent=this.value"
           onchange="saveStrength(this.value)">
         <div style="display:flex;justify-content:space-between;width:100%;font-size:10px;color:var(--muted)">
@@ -241,13 +257,27 @@ main{padding:14px;max-width:800px;margin:0 auto}
         </div>
       </div>
       <div class="setting-row">
-        <div><div class="setting-label">Analysierte Werte</div><div class="setting-sub">DAX (42) + Euro Stoxx 50</div></div>
-        <span class="gold" style="font-family:monospace">~80</span>
+        <div><div class="setting-label">Signallogik</div><div class="setting-sub">Konfirmation: mind. 2 von 3 Gruppen</div></div>
+        <span class="gold" style="font-family:monospace">✓ Aktiv</span>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">ADX-Marktphasenfilter</div><div class="setting-sub">Seitwärts → Trendfolger deaktiviert</div></div>
+        <span class="gold" style="font-family:monospace">✓ Aktiv</span>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Volatilitätsfilter</div><div class="setting-sub">ATR% > 5% → Score −50% + Warnung</div></div>
+        <span class="gold" style="font-family:monospace">✓ Aktiv</span>
       </div>
     </div>
     <div class="section-title">ℹ️ Indikatoren</div>
     <div class="card" style="font-size:12px;color:var(--muted);line-height:1.8">
-      RSI (14) · MACD (12/26/9) · Bollinger Bands (20) · Stochastik (14/3) · EMA 20/50/100/200 · ADX (14) · Williams %R (14) · CCI (20) · OBV · ATR (14) · Pivot Points · 52W Hoch/Tief · ROC (10) · Analystenkonsens
+      RSI (14) · MACD (12/26/9) · Bollinger Bands (20) · Stochastik (14/3) · EMA 20/50/100/200 · ADX (14) · Williams %R (14) · CCI (20) · OBV · ATR (14) · Pivot Points · 52W Hoch/Tief · ROC (10)<br>
+      <span style="color:var(--gold)">ℹ️ Analysten-Konsens: nur zur Information, fließt nicht in den Score ein.</span>
+    </div>
+    <div class="section-title">🗑️ Portfolio zurücksetzen</div>
+    <div class="card">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Setzt alle Positionen und Trades zurück. Startkapital: 10.000€. Nicht rückgängig machbar.</div>
+      <button class="btn btn-danger" onclick="resetPortfolio()">🗑️ Portfolio zurücksetzen auf 10.000€</button>
     </div>
   </div>
 </main>
@@ -270,16 +300,15 @@ main{padding:14px;max-width:800px;margin:0 auto}
       </div>
       <!-- Chart Tab -->
       <div id="dtab-chart">
-      <!-- Period selector -->
-      <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">
-        <button class="period-btn" onclick="setPeriod('1mo',this)">1M</button>
-        <button class="period-btn active" onclick="setPeriod('3mo',this)">3M</button>
-        <button class="period-btn" onclick="setPeriod('6mo',this)">6M</button>
-        <button class="period-btn" onclick="setPeriod('ytd',this)">YTD</button>
-        <button class="period-btn" onclick="setPeriod('1y',this)">1J</button>
-        <button class="period-btn" onclick="setPeriod('5y',this)">5J</button>
-        <button class="period-btn" onclick="resetZoom()" style="color:var(--gold)">⊙</button>
-      </div>
+        <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="period-btn" onclick="setPeriod('1mo',this)">1M</button>
+          <button class="period-btn active" onclick="setPeriod('3mo',this)">3M</button>
+          <button class="period-btn" onclick="setPeriod('6mo',this)">6M</button>
+          <button class="period-btn" onclick="setPeriod('ytd',this)">YTD</button>
+          <button class="period-btn" onclick="setPeriod('1y',this)">1J</button>
+          <button class="period-btn" onclick="setPeriod('5y',this)">5J</button>
+          <button class="period-btn" onclick="resetZoom()" style="color:var(--gold)">⊙</button>
+        </div>
         <div class="chart-container"><canvas id="price-chart" height="260" style="width:100%"></canvas></div>
         <div id="chart-levels" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
         <div style="font-size:10px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;line-height:1.8">
@@ -294,34 +323,23 @@ main{padding:14px;max-width:800px;margin:0 auto}
       </div>
       <!-- Indicators Tab -->
       <div id="dtab-indicators" style="display:none">
+        <div id="analyst-info-box"></div>
+        <div id="vol-warning-box"></div>
         <table class="ind-table" id="ind-table">
-          <thead><tr><th>Indikator</th><th style="text-align:center;width:36px">Signal</th><th style="text-align:right">Wert</th><th style="text-align:right;min-width:100px">Schwellenwerte</th></tr></thead>
+          <thead><tr><th>Indikator</th><th style="text-align:right">Wert</th></tr></thead>
           <tbody id="ind-body"></tbody>
         </table>
       </div>
       <!-- Mini Futures Tab -->
       <div id="dtab-minifutures" style="display:none">
+        <div style="background:rgba(26,115,232,.06);border:1px solid rgba(26,115,232,.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--gold)">
+          ℹ️ <strong>Simulierte Produkte</strong> – keine echten Handelsinstrumente. Preise und Kennzahlen sind rechnerisch generiert und dienen nur zur Orientierung.
+        </div>
         <div style="display:flex;gap:8px;margin-bottom:14px">
           <button class="btn btn-buy" id="mf-long-btn" style="margin:0" onclick="setMFDir('BUY')">▲ Long</button>
           <button class="btn btn-secondary" id="mf-short-btn" style="margin:0" onclick="setMFDir('SELL')">▼ Short</button>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
-          Synthetische Mini-Future Kombinationen (BNP-Systematik) · Hebel x2 bis x30 · Tippen zum Auswählen
-        </div>
         <div id="mf-list"></div>
-        <div id="mf-order-box" style="display:none">
-          <div class="card" style="margin-top:14px">
-            <div style="font-size:13px;font-weight:700;margin-bottom:8px">📋 Ausgewähltes Produkt</div>
-            <div id="mf-sel-info" style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.6"></div>
-            <div class="amount-row">
-              <span style="font-size:12px;color:var(--muted)">Betrag:</span>
-              <input type="number" id="mf-amount" class="amount-input" value="500" min="10" max="9990" step="50">
-              <span style="font-size:12px;color:var(--muted)">€</span>
-            </div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">+ 10€ Ordergebühr</div>
-            <button class="btn btn-gold" id="mf-place-btn" onclick="placeMFOrder()">⚡ Mini-Future Order platzieren</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -329,11 +347,11 @@ main{padding:14px;max-width:800px;margin:0 auto}
 
 <script>
 const API = '';
-let pollTimer = null;
-let chartInst = null;
-let curSignal = null;
-let curMFDir = 'BUY';
-let selMF = null;
+let pollTimer  = null;
+let chartInst  = null;
+let curSignal  = null;
+let curMFDir   = 'BUY';
+let selMF      = null;
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function showTab(name) {
@@ -370,10 +388,10 @@ function toast(msg, type='') {
     t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:#1c1c1c;border:1px solid #2a2a2a;border-radius:24px;padding:10px 20px;font-size:13px;z-index:9999;transition:transform .3s;max-width:90vw;text-align:center';
   }
   t.textContent=msg;
-  t.style.borderColor=type==='ok'?'#22c55e':type==='err'?'#ef4444':'#2a2a2a';
-  t.style.color=type==='ok'?'#22c55e':type==='err'?'#ef4444':'#e8e8e8';
+  t.style.borderColor=type==='ok'?'#22c55e':type==='err'?'#ef4444':type==='warn'?'#d97706':'#2a2a2a';
+  t.style.color=type==='ok'?'#22c55e':type==='err'?'#ef4444':type==='warn'?'#d97706':'#e8e8e8';
   t.style.transform='translateX(-50%) translateY(0)';
-  setTimeout(()=>t.style.transform='translateX(-50%) translateY(80px)',3000);
+  setTimeout(()=>t.style.transform='translateX(-50%) translateY(80px)',3500);
 }
 
 function fmt(n,d=2) { return n==null?'—':parseFloat(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
@@ -382,11 +400,11 @@ function fmt(n,d=2) { return n==null?'—':parseFloat(n).toFixed(d).replace(/\B(
 async function loadSignals() {
   try {
     const res = await fetch(`${API}/api/signals`, {signal: AbortSignal.timeout(15000)});
-    const d = await res.json();
+    const d   = await res.json();
     const status = d.status||'done';
     document.getElementById('s-analyzed').textContent = d.total_analyzed||'…';
-    document.getElementById('s-found').textContent = d.signals_found||(status==='done'?'0':'…');
-    document.getElementById('s-top').textContent = d.top_signals?.length?d.top_signals[0].strength+'/100 ('+d.top_signals.length+')':'—';
+    document.getElementById('s-found').textContent    = d.signals_found||(status==='done'?'0':'…');
+    document.getElementById('s-top').textContent      = d.top_signals?.length?d.top_signals[0].strength+'/100 ('+d.top_signals.length+')':'—';
 
     const pa = document.getElementById('progress-area');
     if (status==='loading'||status==='running') {
@@ -396,24 +414,17 @@ async function loadSignals() {
         <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${p}%"></div></div>
         <div style="font-size:12px;color:var(--muted)">${p}% – automatische Aktualisierung</div>
       </div>`;
-      // Clear error message while loading
-      if (document.getElementById('signals-list').innerHTML.includes('Backend nicht erreichbar')) {
-        document.getElementById('signals-list').innerHTML='';
-      }
       if (!pollTimer) pollTimer=setInterval(loadSignals,12000);
     } else {
       pa.innerHTML='';
       if (pollTimer){clearInterval(pollTimer);pollTimer=null;}
-      renderSignals(d.top_signals||[]);
     }
     if (status==='done') renderSignals(d.top_signals||[]);
   } catch(e) {
-    // Only show error if we have no signals yet
     const hasSigs = document.getElementById('signals-list').innerHTML.includes('signal-card');
     if (!hasSigs) {
       document.getElementById('signals-list').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div style="font-size:14px;color:var(--text)">Server startet…</div><div style="font-size:12px;margin-top:6px">Bitte 30–60 Sekunden warten</div></div>';
     }
-    // Retry after 15 seconds
     if (!pollTimer) pollTimer=setInterval(loadSignals,15000);
   }
 }
@@ -421,11 +432,9 @@ async function loadSignals() {
 function getSeenSignals() {
   try { return JSON.parse(localStorage.getItem('tb_seen_signals') || '[]'); } catch(e) { return []; }
 }
-
 function markSignalsSeen(signals) {
-  if (!signals || !signals.length) return;
-  const keys = signals.map(s => s.ticker + '_' + s.direction);
-  localStorage.setItem('tb_seen_signals', JSON.stringify(keys));
+  if (!signals||!signals.length) return;
+  localStorage.setItem('tb_seen_signals', JSON.stringify(signals.map(s=>s.ticker+'_'+s.direction)));
 }
 
 function renderSignals(signals) {
@@ -434,12 +443,10 @@ function renderSignals(signals) {
     c.innerHTML='<div class="empty"><div class="empty-icon">🔍</div>Keine starken Signale aktuell</div>';
     return;
   }
-
-  const seen = getSeenSignals();
+  const seen    = getSeenSignals();
   const newOnes = seen.length > 0 ? signals.filter(s => !seen.includes(s.ticker+'_'+s.direction)) : [];
   window._lastSignals = signals;
 
-  // New signals banner
   let header = '';
   if (newOnes.length > 0) {
     header = `<div id="new-banner" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
@@ -449,18 +456,34 @@ function renderSignals(signals) {
   }
 
   c.innerHTML = header + signals.map((s,i) => {
-    const isNew = seen.length > 0 && !seen.includes(s.ticker+'_'+s.direction);
+    const isNew       = seen.length > 0 && !seen.includes(s.ticker+'_'+s.direction);
+    const conf        = s.confirming_groups || 2;
+    const phase       = s.market_phase || '';
+    const highVol     = s.high_volatility || false;
+    const phaseClass  = phase.includes('Trend') ? 'badge-trend' : 'badge-side';
+    const phaseLabel  = phase.includes('Trend') ? '📈 Trendmarkt' : (phase.includes('Seite') ? '↔ Seitwärts' : '〜 Schwach');
+
+    const dotHtml = [0,1,2].map(idx =>
+      `<div class="confirm-dot${idx < conf ? (s.direction==='BUY' ? ' on' : ' on-sell') : ''}"></div>`
+    ).join('');
+
     return `
     <div class="signal-card ${s.direction==='BUY'?'buy-card':'sell-card'}${isNew?' new-signal':''}" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
+      ${highVol ? '<div class="vol-warning">⚠️ Hohe Volatilität – erhöhtes Risiko. Stop-Loss und Positionsgröße beachten!</div>' : ''}
       <div class="signal-header">
         <div>
           <div class="signal-name">
-            ${s.name}
-            ${isNew?'<span class="neu-badge">NEU</span>':''}
+            ${s.name}${isNew?'<span class="neu-badge">NEU</span>':''}
           </div>
           <div class="signal-ticker">${s.ticker}</div>
         </div>
-        <span class="badge ${s.direction==='BUY'?'badge-buy':'badge-sell'}">${s.direction==='BUY'?'▲ LONG':'▼ SHORT'}</span>
+        <div style="text-align:right">
+          <span class="badge ${s.direction==='BUY'?'badge-buy':'badge-sell'}">${s.direction==='BUY'?'▲ LONG':'▼ SHORT'}</span>
+          <div style="display:flex;align-items:center;justify-content:flex-end;margin-top:4px;gap:4px">
+            <span class="badge-phase ${phaseClass}">${phaseLabel}</span>
+            <div class="confirm-dots" title="${conf}/3 Gruppen bestätigen">${dotHtml}</div>
+          </div>
+        </div>
       </div>
       <div class="prices">
         <div class="price-item"><div class="price-label">Kurs</div><div class="price-value">${fmt(s.price)}</div></div>
@@ -468,11 +491,11 @@ function renderSignals(signals) {
         <div class="price-item"><div class="price-label">Stop Loss</div><div class="price-value neg">${fmt(s.stop_loss)}</div></div>
       </div>
       <div class="strength-bar"><div class="strength-fill" style="width:${s.strength}%;background:${s.direction==='BUY'?'var(--green)':'var(--red)'}"></div></div>
-      <div style="font-size:11px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+      <div style="font-size:11px;margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         ${s.strength>=70?'<span style="background:#16a34a;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟢 STARK</span>':s.strength>=50?'<span style="background:#d97706;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟡 MITTEL</span>':'<span style="background:#9ca3af;color:white;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700">🟠 SCHWACH</span>'}
-        <span style="color:var(--muted)">${s.strength}/100 · RSI: ${s.rsi}${s.analyst?.recommendation?' · '+s.analyst.recommendation:''}</span>
+        <span style="color:var(--muted)">${s.strength}/100 · RSI: ${s.rsi} · ${conf}/3 Gruppen</span>
       </div>
-      <div class="signal-tags">${(s.signals||[]).slice(0,4).map(r=>`<span>${r}</span>`).join('')}</div>
+      <div class="signal-tags">${(s.signals||[]).slice(0,4).map(r=>`<span class="${r.includes('⚠️')?'warn-tag':''}">${r}</span>`).join('')}</div>
       <div onclick="event.stopPropagation()">
         <div class="amount-row">
           <span style="font-size:12px;color:var(--muted)">Betrag:</span>
@@ -487,18 +510,15 @@ function renderSignals(signals) {
       </div>
     </div>`;
   }).join('');
-
-  // Save current signals to mark as seen when app is closed
   window._currentSignals = signals;
 }
 
 function markAllSeen() {
-  markSignalsSeen(window._lastSignals || []);
+  markSignalsSeen(window._lastSignals||[]);
   document.getElementById('new-banner')?.remove();
-  document.querySelectorAll('.neu-badge').forEach(b => b.remove());
-  document.querySelectorAll('.new-signal').forEach(c => c.classList.remove('new-signal'));
+  document.querySelectorAll('.neu-badge').forEach(b=>b.remove());
+  document.querySelectorAll('.new-signal').forEach(c=>c.classList.remove('new-signal'));
 }
-
 
 async function doRefresh() {
   const btn = document.getElementById('refresh-btn');
@@ -521,25 +541,27 @@ async function openTrade(signal, amount) {
       body:JSON.stringify({...signal,invest_amount:parseFloat(amount)||0})
     });
     const d = await res.json();
-    if (res.ok) toast(`✅ ${signal.name} ${signal.direction} eröffnet (−10€ Gebühr)`,'ok');
-    else toast(`❌ ${d.detail}`,'err');
+    if (res.ok) {
+      toast(`✅ ${signal.name} ${signal.direction} eröffnet · Risiko: ${d.risk_pct||'?'}% (−10€ Gebühr)`,'ok');
+      setTimeout(()=>{ loadPortfolio(); backupPortfolio(); }, 800);
+    } else toast(`❌ ${d.detail}`,'err');
   } catch(e){toast('Fehler','err');}
 }
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 async function openDetail(signal, goMF=false) {
   curSignal = signal;
-  curMFDir = signal.direction;
+  curMFDir  = signal.direction;
   document.getElementById('modal-title').textContent = signal.name+' ('+signal.ticker+')';
-  document.getElementById('modal-sub').textContent = `${signal.direction==='BUY'?'▲ LONG':'▼ SHORT'} · ${fmt(signal.price)} · Stärke: ${signal.strength}/100`;
+  document.getElementById('modal-sub').textContent   = `${signal.direction==='BUY'?'▲ LONG':'▼ SHORT'} · ${fmt(signal.price)} · Stärke: ${signal.strength}/100`;
   document.getElementById('detail-modal').classList.add('open');
   if (goMF) showDTab('minifutures');
   else showDTab('chart');
 
   try {
     const res = await fetch(`${API}/api/detail/${encodeURIComponent(signal.ticker)}`);
-    const d = await res.json();
-    curSignal = {...signal,...d};
+    const d   = await res.json();
+    curSignal = {...signal, ...d};
     renderChart(d);
     renderIndicators(d);
   } catch(e) { renderChart(signal); }
@@ -554,121 +576,63 @@ let curChartData = [];
 
 function renderChart(d) {
   curChartData = d.chart_data||[];
-  document.querySelectorAll('.period-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent==='3M');
-  });
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.toggle('active',b.textContent==='3M'));
   buildChart(curChartData, d);
 }
 
 async function setPeriod(period, btn) {
-  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   if (!curSignal) return;
-
-  // Map period to yfinance period string
-  const periodMap = {'1mo':'1mo','3mo':'3mo','6mo':'6mo','ytd':'ytd','1y':'1y','5y':'5y'};
-  const yPeriod = periodMap[period] || '3mo';
-
-  // Show loading
-  const chartContainer = document.getElementById('price-chart');
-  chartContainer.style.opacity = '0.4';
-
+  document.getElementById('price-chart').style.opacity='0.4';
   try {
-    const res = await fetch(`${API}/api/chart/${encodeURIComponent(curSignal.ticker)}?period=${yPeriod}`);
-    const d = await res.json();
-    if (d.data && d.data.length) {
+    const res = await fetch(`${API}/api/chart/${encodeURIComponent(curSignal.ticker)}?period=${period}`);
+    const d   = await res.json();
+    if (d.data&&d.data.length) {
       curChartData = d.data;
-      // Recalculate support/resistance for this period
-      const updatedSignal = {...curSignal, chart_data: d.data,
-        support_levels: d.support_levels || curSignal.support_levels || [],
-        resistance_levels: d.resistance_levels || curSignal.resistance_levels || []
-      };
-      buildChart(curChartData, updatedSignal);
+      buildChart(curChartData, {...curSignal,
+        support_levels:    d.support_levels||curSignal.support_levels||[],
+        resistance_levels: d.resistance_levels||curSignal.resistance_levels||[]
+      });
     }
   } catch(e) {
-    // Fallback to cached data
     const days = period==='1mo'?30:period==='3mo'?90:period==='6mo'?180:period==='5y'?1825:365;
     buildChart(curChartData.slice(-days), curSignal||{});
   } finally {
-    chartContainer.style.opacity = '1';
+    document.getElementById('price-chart').style.opacity='1';
   }
 }
 
-function resetZoom() {
-  if (chartInst) chartInst.resetZoom();
-}
+function resetZoom() { if (chartInst) chartInst.resetZoom(); }
 
 function buildChart(data, d) {
   if (!data||!data.length) return;
   if (chartInst){chartInst.destroy();chartInst=null;}
-  const ctx = document.getElementById('price-chart').getContext('2d');
-  const supp = (d.support_levels||[]);
-  const res = (d.resistance_levels||[]);
-
-  // Build annotation lines for support/resistance
+  const ctx  = document.getElementById('price-chart').getContext('2d');
+  const supp = d.support_levels||[];
+  const res  = d.resistance_levels||[];
   const annotations = {};
-  supp.forEach((v,i) => {
-    annotations['s'+i] = {
-      type:'line', yMin:v, yMax:v,
-      borderColor:'rgba(34,197,94,.8)', borderWidth:2, borderDash:[6,4],
-      label:{content:'S'+(i+1)+': '+v, display:true, position:'start',
-             backgroundColor:'rgba(255,255,255,.9)', color:'#16a34a', font:{size:12,weight:'bold'},
-             padding:{x:6,y:4}}
-    };
-  });
-  res.forEach((v,i) => {
-    annotations['r'+i] = {
-      type:'line', yMin:v, yMax:v,
-      borderColor:'rgba(239,68,68,.8)', borderWidth:2, borderDash:[6,4],
-      label:{content:'R'+(i+1)+': '+v, display:true, position:'start',
-             backgroundColor:'rgba(255,255,255,.9)', color:'#ef4444', font:{size:12,weight:'bold'},
-             padding:{x:6,y:4}}
-    };
-  });
-
-  const hasEma200 = data.some(x => x.ema200);
-  // BB as filled area: upper fills down to lower
+  supp.forEach((v,i)=>{ annotations['s'+i]={type:'line',yMin:v,yMax:v,borderColor:'rgba(34,197,94,.8)',borderWidth:2,borderDash:[6,4],label:{content:'S'+(i+1)+': '+v,display:true,position:'start',backgroundColor:'rgba(255,255,255,.9)',color:'#16a34a',font:{size:12,weight:'bold'},padding:{x:6,y:4}}}; });
+  res.forEach((v,i)=>{ annotations['r'+i]={type:'line',yMin:v,yMax:v,borderColor:'rgba(239,68,68,.8)',borderWidth:2,borderDash:[6,4],label:{content:'R'+(i+1)+': '+v,display:true,position:'start',backgroundColor:'rgba(255,255,255,.9)',color:'#ef4444',font:{size:12,weight:'bold'},padding:{x:6,y:4}}}; });
+  const hasEma200 = data.some(x=>x.ema200);
   const datasets = [
-    // BB Upper (fills down to BB Lower = index 3)
-    {label:'BB Oberes Band',data:data.map(x=>x.bb_upper),
-     borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,
-     fill:'+2',backgroundColor:'rgba(100,130,220,.12)',tension:0.3},
-    // BB Mitte
-    {label:'BB Mittelband',data:data.map(x=>x.bb_mid),
-     borderColor:'rgba(100,100,200,.5)',borderWidth:1,pointRadius:0,
-     fill:false,borderDash:[3,3],tension:0.3},
-    // BB Lower
-    {label:'BB Unteres Band',data:data.map(x=>x.bb_lower),
-     borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,
-     fill:false,backgroundColor:'rgba(100,130,220,.12)',tension:0.3},
-    // Kurs on top
-    {label:'Kurs',data:data.map(x=>x.close),
-     borderColor:'#1a1a1a',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:0},
-    {label:'EMA 20',data:data.map(x=>x.ema20),
-     borderColor:'rgba(22,163,74,.9)',borderWidth:1.5,pointRadius:0,fill:false},
-    {label:'EMA 50',data:data.map(x=>x.ema50),
-     borderColor:'rgba(220,38,38,.9)',borderWidth:1.5,pointRadius:0,fill:false},
+    {label:'BB Oberes Band',data:data.map(x=>x.bb_upper),borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,fill:'+2',backgroundColor:'rgba(100,130,220,.12)',tension:0.3},
+    {label:'BB Mittelband',data:data.map(x=>x.bb_mid),borderColor:'rgba(100,100,200,.5)',borderWidth:1,pointRadius:0,fill:false,borderDash:[3,3],tension:0.3},
+    {label:'BB Unteres Band',data:data.map(x=>x.bb_lower),borderColor:'rgba(100,100,200,.25)',borderWidth:0,pointRadius:0,fill:false,tension:0.3},
+    {label:'Kurs',data:data.map(x=>x.close),borderColor:'#1a1a1a',borderWidth:2,pointRadius:0,fill:false,tension:0.1,order:0},
+    {label:'EMA 20',data:data.map(x=>x.ema20),borderColor:'rgba(22,163,74,.9)',borderWidth:1.5,pointRadius:0,fill:false},
+    {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'rgba(220,38,38,.9)',borderWidth:1.5,pointRadius:0,fill:false},
   ];
-  if (hasEma200) datasets.push(
-    {label:'EMA 200',data:data.map(x=>x.ema200||null),
-     borderColor:'rgba(99,102,241,.9)',borderWidth:2,pointRadius:0,
-     fill:false,borderDash:[8,3]}
-  );
+  if (hasEma200) datasets.push({label:'EMA 200',data:data.map(x=>x.ema200||null),borderColor:'rgba(99,102,241,.9)',borderWidth:2,pointRadius:0,fill:false,borderDash:[8,3]});
 
   chartInst = new Chart(ctx,{
     type:'line',
-    data:{
-      labels:data.map(x=>x.date.slice(5)),
-      datasets
-    },
+    data:{labels:data.map(x=>x.date.slice(5)),datasets},
     options:{
-      responsive:true, maintainAspectRatio:true,
+      responsive:true,maintainAspectRatio:true,
       plugins:{
         legend:{display:false},
-        zoom:{
-          zoom:{wheel:{enabled:true}, pinch:{enabled:true}, mode:'x'},
-          pan:{enabled:true, mode:'x'}
-        },
+        zoom:{zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},pan:{enabled:true,mode:'x'}},
         annotation:{annotations}
       },
       scales:{
@@ -677,339 +641,116 @@ function buildChart(data, d) {
       }
     }
   });
-
-  const levels = document.getElementById('chart-levels');
+  const levEl = document.getElementById('chart-levels');
   if (supp.length||res.length)
-    levels.innerHTML=`<span style="color:var(--green)">▼ Support: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ Widerstand: ${res.join(' / ')}</span>`;
-
-  // Show EMA200 in legend if present
-  const ema200Legend = document.getElementById('ema200-legend');
-  if (ema200Legend) ema200Legend.style.display = hasEma200 ? 'inline' : 'none';
+    levEl.innerHTML=`<span style="color:var(--green)">▼ Support: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ Widerstand: ${res.join(' / ')}</span>`;
+  const el200 = document.getElementById('ema200-legend');
+  if (el200) el200.style.display = hasEma200?'inline':'none';
 }
 
-// ── Indikator-Definitionen ────────────────────────────────────────────────────
+// ── Indikator-Info-Definitionen ───────────────────────────────────────────────
 const IND_INFO = {
-  "RSI (14)": {
-    name: "Relative Stärke Index (RSI)",
-    calc: "Stell dir vor, eine Aktie ist wie ein Gummiband: Wird sie zu stark in eine Richtung gezogen, schnellt sie irgendwann zurück. Der RSI misst genau das. Er vergleicht die durchschnittlichen Kursgewinne mit den durchschnittlichen Kursverlusten der letzten 14 Handelstage und gibt einen Wert zwischen 0 und 100 aus. Ein hoher RSI bedeutet: Der Kurs ist in letzter Zeit stark gestiegen und könnte bald nach unten korrigieren. Ein niedriger RSI bedeutet: Der Kurs ist stark gefallen und könnte sich bald erholen.",
-    signal: "🟢 Kaufsignal: RSI unter 30 – die Aktie gilt als überverkauft, also zu stark gefallen. Viele Anleger sehen das als Einstiegschance für eine Long-Position. | 🔴 Verkaufssignal: RSI über 70 – die Aktie gilt als überkauft, also zu stark gestiegen. Möglicher Zeitpunkt zum Verkauf oder für eine Short-Position. | ⚪ Neutral: RSI zwischen 30 und 70 – kein klares Signal, Markt in normalem Zustand."
-  },
-  "MACD": {
-    name: "MACD – Trendfolge und Momentum",
-    calc: "Der MACD (sprich: Mack-Dee) zeigt, ob ein Trend an Stärke gewinnt oder verliert. Er berechnet die Differenz zwischen zwei gleitenden Durchschnitten: einem schnellen 12-Tage-Durchschnitt und einem langsamen 26-Tage-Durchschnitt. Ist der schnelle Durchschnitt höher als der langsame, ist der MACD positiv – der kurzfristige Trend ist stärker als der langfristige und zeigt Aufwärtsdynamik. Ein negativer MACD zeigt das Gegenteil: Der kurzfristige Trend schwächt sich gegenüber dem langfristigen ab.",
-    signal: "🟢 Kaufsignal: Der MACD kreuzt die Signallinie (rote Linie) von unten nach oben – die Aufwärtsdynamik nimmt zu. | 🔴 Verkaufssignal: Der MACD kreuzt die Signallinie von oben nach unten – der Trend verliert an Kraft. | Tipp: Kreuzungen nahe der Nulllinie gelten als besonders zuverlässig."
-  },
-  "MACD Signal": {
-    name: "MACD Signallinie",
-    calc: "Die Signallinie ist ein 9-Tage-Durchschnitt des MACD selbst. Sie glättet den MACD und macht Trendwenden leichter erkennbar. Man kann sie sich als Auslöser vorstellen: Wenn der MACD die Signallinie kreuzt, entsteht das eigentliche Handelssignal. Die Signallinie reagiert langsamer als der MACD – dadurch werden kurzfristige Fehlsignale herausgefiltert.",
-    signal: "🟢 Kaufsignal: MACD-Linie steigt über die Signallinie – Aufwärtstrend beginnt oder verstärkt sich. | 🔴 Verkaufssignal: MACD-Linie fällt unter die Signallinie – Abwärtstrend beginnt oder verstärkt sich."
-  },
-  "BB %B": {
-    name: "Bollinger Bands %B – Position im Band",
-    calc: "Dieser Wert zeigt dir genau, wo sich der aktuelle Kurs innerhalb der Bollinger Bänder befindet. Die Bollinger Bänder bilden einen Kanal um den Kurs. %B = 0 bedeutet: Kurs ist genau am unteren Band. %B = 0,5 bedeutet: Kurs ist in der Mitte des Bandes. %B = 1 bedeutet: Kurs ist genau am oberen Band. Werte über 1 oder unter 0 bedeuten, dass der Kurs das Band verlassen hat – ein extremes Ereignis.",
-    signal: "🟢 Kaufsignal: %B unter 0,05 – Kurs berührt oder unterschreitet das untere Band, starkes Überverkauft-Signal. | 🔴 Verkaufssignal: %B über 0,95 – Kurs berührt oder überschreitet das obere Band, starkes Überkauft-Signal. | ⚪ Neutral: %B zwischen 0,2 und 0,8."
-  },
-  "BB Upper": {
-    name: "Bollinger Band – Oberes Band",
-    calc: "Das obere Bollinger Band liegt 2 Standardabweichungen über dem 20-Tage-Durchschnitt. Einfach ausgedrückt: Es markiert den Bereich, den der Kurs statistisch gesehen nur selten überschreitet – ca. 95% aller Kurse liegen innerhalb der Bänder. Wenn die Bänder sich verengen, ist wenig Bewegung im Markt. Wenn sie sich weiten, herrscht hohe Volatilität und größere Kursbewegungen sind wahrscheinlich.",
-    signal: "🔴 Verkaufssignal: Kurs berührt oder überschreitet das obere Band – der Kurs ist statistisch zu hoch und könnte zurückfallen. Das Signal ist besonders stark, wenn der RSI gleichzeitig über 70 liegt."
-  },
-  "BB Lower": {
-    name: "Bollinger Band – Unteres Band",
-    calc: "Das untere Bollinger Band liegt 2 Standardabweichungen unter dem 20-Tage-Durchschnitt. Es markiert den unteren Extrembereich des Kurses. Wenn der Kurs das untere Band berührt, hat er sich statistisch gesehen sehr weit vom Durchschnitt entfernt. Märkte neigen dazu, zum Durchschnitt zurückzukehren – man nennt das Mean Reversion.",
-    signal: "🟢 Kaufsignal: Kurs berührt oder unterschreitet das untere Band – der Kurs ist statistisch zu niedrig und könnte sich erholen. Das Signal ist besonders stark, wenn der RSI gleichzeitig unter 30 liegt."
-  },
-  "Stoch %K": {
-    name: "Stochastik %K – Schnelle Linie",
-    calc: "Die Stochastik vergleicht den aktuellen Schlusskurs mit der Handelsspanne der letzten 14 Tage. Die Frage lautet: Liegt der heutige Kurs nahe am 14-Tage-Hoch (100%) oder nahe am 14-Tage-Tief (0%)? Ein hoher %K-Wert bedeutet, der Kurs schloss nahe am oberen Ende – Kaufdruck war dominant. Ein niedriger Wert zeigt: Verkaufsdruck dominierte.",
-    signal: "🟢 Kaufsignal: %K fällt unter 20 (überverkauft) und beginnt dann zu steigen und kreuzt %D von unten – guter Einstiegszeitpunkt. | 🔴 Verkaufssignal: %K steigt über 80 (überkauft) und beginnt zu fallen und kreuzt %D von oben."
-  },
-  "Stoch %D": {
-    name: "Stochastik %D – Langsame Signallinie",
-    calc: "Die %D-Linie ist ein 3-Tage-Durchschnitt der %K-Linie und reagiert deshalb langsamer. Sie dient als Signallinie für %K, ähnlich wie die Signallinie beim MACD. Durch die Glättung werden kurzfristige Fehlsignale reduziert. Das eigentliche Handelssignal entsteht, wenn %K die %D-Linie kreuzt.",
-    signal: "🟢 Kaufsignal: %K kreuzt %D von unten nach oben, während beide im überverkauften Bereich unter 20 liegen. | 🔴 Verkaufssignal: %K kreuzt %D von oben nach unten, während beide im überkauften Bereich über 80 liegen."
-  },
-  "EMA 20": {
-    name: "EMA 20 – Kurzfristiger Trendindikator (4 Wochen)",
-    calc: "Der EMA 20 ist der gewichtete Durchschnitt der letzten 20 Schlusskurse, wobei neuere Kurse stärker gewichtet werden als ältere. Im Chart erscheint er als glatte Linie. Liegt der Kurs über dem EMA 20, ist der kurzfristige Trend aufwärts gerichtet. Liegt er darunter, abwärts. Viele Händler nutzen den EMA 20 auch als dynamische Unterstützungs- oder Widerstandslinie.",
-    signal: "🟢 Kaufsignal: Kurs steigt über den EMA 20 – kurzfristiger Auftrend beginnt. | 🔴 Verkaufssignal: Kurs fällt unter den EMA 20 – kurzfristiger Abtrend beginnt. | Tipp: Stärkstes Signal wenn EMA 20 > EMA 50 > EMA 200 gleichzeitig gilt."
-  },
-  "EMA 50": {
-    name: "EMA 50 – Mittelfristiger Trendindikator (10 Wochen)",
-    calc: "Der EMA 50 zeigt den mittelfristigen Trend der letzten 10 Wochen und reagiert langsamer als der EMA 20. Er filtert kurzfristige Schwankungen heraus. Profis beobachten besonders das Verhältnis zwischen EMA 20 und EMA 50: Liegt der EMA 20 über dem EMA 50, spricht man vom Golden Cross – einem der stärksten Kaufsignale. Liegt EMA 20 unter EMA 50, nennt man das Death Cross – ein Warnsignal.",
-    signal: "🟢 Kaufsignal – Golden Cross: EMA 20 kreuzt EMA 50 von unten nach oben. | 🔴 Verkaufssignal – Death Cross: EMA 20 kreuzt EMA 50 von oben nach unten."
-  },
-  "EMA 100": {
-    name: "EMA 100 – Mittelfristiger bis langfristiger Trend (20 Wochen)",
-    calc: "Der EMA 100 glättet die Kursbewegungen der letzten 20 Wochen und wird oft als mittelfristiger Kompass bezeichnet. Liegt der Kurs deutlich über dem EMA 100, befinden wir uns in einem gesunden Aufwärtstrend. Fällt der Kurs unter den EMA 100, kann das den Beginn einer größeren Trendwende nach unten signalisieren.",
-    signal: "🟢 Kaufsignal: Kurs liegt über EMA 100 – mittelfristiger Aufwärtstrend intakt. | 🔴 Verkaufssignal: Kurs fällt unter EMA 100 – mögliche mittelfristige Trendwende nach unten."
-  },
-  "EMA 200": {
-    name: "EMA 200 – Der wichtigste Langfrist-Indikator (40 Wochen)",
-    calc: "Der EMA 200 ist die Mutter aller gleitenden Durchschnitte und zeigt den langfristigen Trend über ca. 40 Wochen. Institutionelle Investoren wie Banken und Fonds beobachten ihn sehr genau. Er trennt langfristige Bullenmärkte von Bärenmärkten. Eine Aktie über dem EMA 200 gilt als langfristig im Aufwärtstrend – darunter im Abwärtstrend.",
-    signal: "🟢 Starkes Kaufsignal: Kurs steigt nach langer Phase darunter über den EMA 200 – möglicher Beginn eines neuen Bullenmarktes. | 🔴 Starkes Verkaufssignal: Kurs fällt unter den EMA 200 – möglicher Beginn eines Bärenmarktes. | Tipp: Kurs über EMA 200 = langfristig bullisch, auch wenn kurzfristige Korrekturen kommen."
-  },
-  "ADX": {
-    name: "ADX – Wie stark ist der aktuelle Trend?",
-    calc: "Der ADX beantwortet eine wichtige Frage: Gibt es überhaupt einen Trend – und wenn ja, wie stark ist er? Er sagt nichts über die Richtung (das machen +DI und -DI), sondern nur über die Stärke. Ein niedriger ADX bedeutet: Der Markt bewegt sich seitwärts ohne klare Richtung. Ein hoher ADX bedeutet: Es gibt einen starken Trend, dem es sich lohnt zu folgen.",
-    signal: "ADX unter 20: Kein klarer Trend – Signale anderer Indikatoren sind weniger verlässlich, besser abwarten. | ADX 20–25: Trend beginnt sich zu entwickeln. | 🟢🔴 ADX über 25: Starker Trend vorhanden – Long wenn +DI > -DI, Short wenn -DI > +DI. | ADX über 40: Sehr starker Trend, aber auch Vorsicht vor baldiger Erschöpfung."
-  },
-  "+DI": {
-    name: "+DI – Stärke der Aufwärtsbewegung",
-    calc: "Der +DI (Positiver Direktionalindikator) misst, wie stark die täglichen Aufwärtsbewegungen im Verhältnis zur Gesamtbewegung sind. Ein hoher +DI zeigt: Käufer dominieren den Markt, die Aufwärtsbewegungen sind stärker als die Abwärtsbewegungen. Er wird immer zusammen mit -DI und ADX betrachtet – alleine sagt er wenig aus.",
-    signal: "🟢 Kaufsignal: +DI kreuzt -DI von unten nach oben (bei gleichzeitig hohem ADX über 25) – Aufwärtstrend übernimmt die Kontrolle. | Je größer der Abstand zwischen +DI und -DI, desto stärker der Trend."
-  },
-  "-DI": {
-    name: "-DI – Stärke der Abwärtsbewegung",
-    calc: "Der -DI (Negativer Direktionalindikator) misst, wie stark die täglichen Abwärtsbewegungen sind. Ein hoher -DI zeigt: Verkäufer dominieren den Markt. Er bildet zusammen mit +DI und ADX ein vollständiges Trendanalyse-System. Wenn -DI deutlich über +DI liegt, sollte man eher Short-Positionen bevorzugen.",
-    signal: "🔴 Verkaufssignal: -DI kreuzt +DI von unten nach oben (bei ADX über 25) – Abwärtstrend übernimmt die Kontrolle. | Wenn -DI weit über +DI liegt: Short-Positionen bevorzugen."
-  },
-  "Williams %R": {
-    name: "Williams %R – Ähnlich wie RSI, aber spiegelverkehrt",
-    calc: "Der Williams %R zeigt, wo der aktuelle Kurs relativ zum Höchstkurs der letzten 14 Tage steht. Der Wert liegt immer zwischen 0 und -100. Nahe 0 bedeutet: Kurs ist am Hoch der letzten 14 Tage – überkauft. Nahe -100 bedeutet: Kurs ist am Tief der letzten 14 Tage – überverkauft. Vorteil gegenüber dem RSI: Der Williams %R reagiert oft schneller und zeigt Umkehrpunkte früher an.",
-    signal: "🟢 Kaufsignal: Williams %R unter -80 – Markt ist überverkauft, mögliche Erholung steht bevor. | 🔴 Verkaufssignal: Williams %R über -20 – Markt ist überkauft, möglicher Rücksetzer. | Besonders stark wenn Williams %R und RSI gleichzeitig im Extrembereich sind."
-  },
-  "CCI (20)": {
-    name: "CCI – Commodity Channel Index",
-    calc: "Der CCI misst, wie weit der aktuelle Kurs vom statistischen Durchschnitt der letzten 20 Tage abweicht. Ein CCI von +100 bedeutet: Kurs liegt ungewöhnlich hoch über dem Durchschnitt – überkauft. Ein CCI von -100 bedeutet: Kurs liegt ungewöhnlich weit unter dem Durchschnitt – überverkauft. Ursprünglich für Rohstoffmärkte entwickelt, wird er heute für alle Märkte eingesetzt.",
-    signal: "🟢 Kaufsignal: CCI fällt unter -100 (überverkauft) und beginnt wieder zu steigen – guter Einstiegszeitpunkt. | 🔴 Verkaufssignal: CCI steigt über +100 (überkauft) und beginnt zu fallen. | Extreme Signale: CCI unter -200 oder über +200 sind seltene und besonders starke Extremereignisse."
-  },
-  "OBV Trend": {
-    name: "OBV – Zeigt wer wirklich kauft (Volumen-Analyse)",
-    calc: "Der OBV verbindet Kurs und Handelsvolumen. Die Grundidee: Wenn eine Aktie mit hohem Volumen steigt, kaufen viele Investoren – bullisch. Wenn sie mit hohem Volumen fällt, verkaufen viele – bärisch. Der OBV addiert das Volumen an Aufwärtstagen und subtrahiert es an Abwärtstagen. Steigt der OBV auch wenn der Kurs noch seitwärts läuft, deutet das oft auf bald steigende Kurse hin – sogenanntes Smart Money kauft bereits.",
-    signal: "🟢 Kaufsignal: OBV steigt – mehr Kaufvolumen als Verkaufsvolumen, bullischer Druck dominiert. | 🔴 Verkaufssignal: OBV fällt – mehr Verkaufsvolumen, bärischer Druck dominiert. | Besonderes Signal – Bullische Divergenz: OBV steigt, aber Kurs fällt noch. Der Kurs wird dem OBV bald nach oben folgen."
-  },
-  "ATR (14)": {
-    name: "ATR – Wie stark schwankt die Aktie täglich?",
-    calc: "Der ATR misst, wie stark eine Aktie im Durchschnitt pro Handelstag schwankt, über die letzten 14 Tage. Er gibt einen konkreten Euro-Betrag: Diese Aktie bewegt sich durchschnittlich X Euro pro Tag. Ein hoher ATR bedeutet hohe Volatilität – die Aktie macht große Sprünge. Ein niedriger ATR bedeutet ruhige, enge Bewegungen. Der ATR sagt nichts über die Richtung, nur über die Stärke.",
-    signal: "Kein direktes Kauf- oder Verkaufssignal. Verwendung für Stop-Loss: Stop Loss = Einstiegskurs minus 1,5 × ATR (Long) oder plus 1,5 × ATR (Short). Beispiel: ATR = 5€, Einstieg bei 100€ → Stop Loss bei 92,50€. | Hoher ATR: Größere Stop-Loss-Abstände nötig, aber auch größere Gewinnchancen."
-  },
-  "ATR %": {
-    name: "ATR % – Relative Volatilität im Vergleich",
-    calc: "ATR % setzt den ATR in Relation zum aktuellen Kurs. Beispiel: ATR = 5€ bei Kurs 100€ = ATR% von 5%. Das macht verschiedene Aktien vergleichbar: Eine günstige Aktie mit ATR 1€ bei Kurs 10€ (=10%) ist viel volatiler als eine teure Aktie mit ATR 10€ bei Kurs 500€ (=2%), obwohl der ATR in Euro bei der teuren Aktie höher ist.",
-    signal: "Kein direktes Handelssignal. Als Orientierung: ATR% unter 1%: Sehr ruhig, enger Markt. | ATR% 1–3%: Normal. | ATR% über 5%: Sehr volatil – höheres Risiko, aber auch höhere Chancen. | Tipp beim Hebel-Trading: Niedrige ATR% = ruhigere Bewegungen, weniger Risiko eines Knock-outs."
-  },
-  "Pivot": {
-    name: "Pivot Point – Der Tages-Angelpunkt",
-    calc: "Der Pivot Point ist ein rechnerischer Referenzpunkt aus den gestrigen Kursdaten: (gestriges Hoch + gestriges Tief + gestriger Schluss) dividiert durch 3. Er teilt den heutigen Handel in zwei Zonen: Liegt der Kurs über dem Pivot, sind Käufer in der Kontrolle. Liegt er darunter, dominieren Verkäufer. Viele professionelle Trader und Algorithmen nutzen Pivot Points automatisch als Kursziele.",
-    signal: "🟢 Kaufsignal: Kurs steigt über den Pivot Point – Käufer übernehmen, erstes Kursziel ist R1. | 🔴 Verkaufssignal: Kurs fällt unter den Pivot Point – Verkäufer dominieren, erstes Kursziel ist S1."
-  },
-  "R1": {
-    name: "R1 – Erster Widerstand oberhalb des Pivot",
-    calc: "R1 ist der erste Widerstandsbereich über dem Pivot Point. Formel: R1 = (2 × Pivot) minus gestriges Tief. An diesem Level ist häufig mit verstärktem Verkaufsdruck zu rechnen, weil viele Händler hier Gewinne mitnehmen oder Short-Positionen eröffnen. R1 ist das häufigste Tagesziel bei einem Aufwärtsausbruch über den Pivot.",
-    signal: "🔴 Vorsicht bei R1: Wenn der Kurs R1 von unten erreicht, kann er abprallen. | 🟢 Wenn der Kurs R1 deutlich und mit hohem Volumen überschreitet, ist das ein starkes Kaufsignal – nächstes Ziel wäre R2."
-  },
-  "R2": {
-    name: "R2 – Zweiter, stärkerer Widerstand",
-    calc: "R2 ist der zweite Widerstandsbereich, stärker als R1. Formel: R2 = Pivot + (gestriges Hoch minus gestriges Tief). Das Erreichen von R2 an einem Handelstag ist selten und zeigt, dass der Markt sehr bullisch ist. Hier nehmen viele Händler Gewinne mit, weshalb R2 oft eine starke Verkaufszone darstellt.",
-    signal: "🔴 Starkes Verkaufssignal: Kurs erreicht R2 – sehr hohe Wahrscheinlichkeit einer Korrektur oder Pause. | Nur in sehr starken Trends wird R2 nachhaltig und ohne Rücksetzer überwunden."
-  },
-  "S1": {
-    name: "S1 – Erste Unterstützung unterhalb des Pivot",
-    calc: "S1 ist der erste Unterstützungsbereich unter dem Pivot Point. Formel: S1 = (2 × Pivot) minus gestriges Hoch. An diesem Level kaufen viele Händler, weil sie auf eine Erholung setzen. S1 wirkt wie ein erstes Auffangnetz für fallende Kurse.",
-    signal: "🟢 Kaufsignal: Kurs fällt auf S1 und hält dort – Unterstützung hält, guter Einstiegspunkt für Long. | 🔴 Wenn S1 unterschritten wird: Erhöhter Verkaufsdruck, nächstes Ziel ist S2."
-  },
-  "S2": {
-    name: "S2 – Zweite, stärkere Unterstützung",
-    calc: "S2 ist der zweite, stärkere Unterstützungsbereich. Formel: S2 = Pivot minus (gestriges Hoch minus gestriges Tief). Das Erreichen von S2 zeigt, dass der Markt heute sehr bärisch war. S2 gilt als starke Unterstützungszone, wo häufig mutige Käufer einsteigen und auf eine Erholung setzen.",
-    signal: "🟢 Starkes Kaufsignal: Kurs fällt auf S2 und hält dort – statistisch häufiger Wendepunkt nach oben. | Warnung: Wenn auch S2 nachhaltig unterschritten wird, ist der Abwärtsdruck sehr stark und weitere Verluste sind wahrscheinlich."
-  },
-  "52W Hoch": {
-    name: "52-Wochen-Hoch – Das Jahreshoch",
-    calc: "Das 52-Wochen-Hoch ist der höchste Kurs der vergangenen 12 Monate. Es ist ein wichtiger psychologischer Referenzpunkt: Wenn eine Aktie ihr Jahreshoch testet, wollen viele Anleger, die am Hoch gekauft und seitdem Verluste erlitten haben, endlich wieder verkaufen ohne Verlust – was zu Verkaufsdruck führt. Andererseits: Wenn das Jahreshoch überzeugend überwunden wird, ist das ein sehr starkes Ausbruchssignal.",
-    signal: "🔴 Vorsicht: Kurs nähert sich dem 52-Wochen-Hoch – hoher Widerstand, da alte Käufer verkaufen wollen. | 🟢 Starkes Kaufsignal: Kurs überschreitet das 52-Wochen-Hoch mit hohem Volumen – sogenannter Ausbruch, dem oft eine starke Aufwärtsbewegung folgt."
-  },
-  "52W Tief": {
-    name: "52-Wochen-Tief – Das Jahrestief",
-    calc: "Das 52-Wochen-Tief ist der niedrigste Kurs der vergangenen 12 Monate. Es markiert eine starke Unterstützungszone, da viele Anleger hier auf eine Erholung setzen und günstig kaufen möchten. Gleichzeitig ist Vorsicht geboten: Wenn das Jahrestief unterschritten wird, kann das eine starke Abwärtsbeschleunigung auslösen.",
-    signal: "🟢 Potentielles Kaufsignal: Kurs nähert sich dem 52-Wochen-Tief – mögliche Unterstützungszone, günstiger Einstieg möglich. | 🔴 Warnsignal: Kurs unterschreitet das 52-Wochen-Tief – Ausbruch nach unten, weitere Verluste möglich."
-  },
-  "52W Position": {
-    name: "Position im 52-Wochen-Band – Günstig oder teuer?",
-    calc: "Dieser Wert zeigt in Prozent, wo der aktuelle Kurs zwischen dem Jahrestief (0%) und dem Jahreshoch (100%) steht. Beispiel: Jahrestief = 80€, Jahreshoch = 120€, aktueller Kurs = 90€ → Position = 25% (unteres Viertel des Jahresbandes). Das gibt schnell eine Einschätzung: Ist die Aktie im Jahresvergleich eher günstig (niedriger %) oder teuer (hoher %)?",
-    signal: "🟢 Kaufsignal: Position unter 15% – Aktie nahe Jahrestief, möglicherweise günstig bewertet. | 🔴 Verkaufssignal: Position über 85% – Aktie nahe Jahreshoch, möglicherweise überbewertet. | ⚪ Neutral: 15% bis 85%."
-  },
-  "ROC (10)": {
-    name: "ROC – Wie viel Prozent hat der Kurs in 10 Tagen bewegt?",
-    calc: "Der ROC (Rate of Change) misst einfach: Wie viel Prozent hat der Kurs in den letzten 10 Handelstagen gewonnen oder verloren? Beispiel: Kurs vor 10 Tagen = 100€, heute = 105€ → ROC = +5%. Der ROC ist ein reiner Momentumindikator und zeigt, ob der Kurs an Fahrt gewinnt oder verliert. Starke Trends haben konstant positive (Auftrend) oder negative (Abtrend) ROC-Werte.",
-    signal: "🟢 Kaufsignal: ROC steigt von negativ auf positiv – Momentum dreht nach oben, Trend könnte beginnen. | 🔴 Verkaufssignal: ROC fällt von positiv auf negativ – Momentum dreht nach unten. | Extreme Werte über +5% oder unter -5%: Mögliche Erschöpfung des Trends, Trendumkehr möglich."
-  },
-  "Analysten": {
-    name: "Analysten-Konsensempfehlung",
-    calc: "Banken und Wertpapierhäuser beschäftigen Analysten, die Unternehmen intensiv beobachten und regelmäßig Empfehlungen herausgeben. Hier wird der Durchschnitt aller verfügbaren Empfehlungen auf einer Skala von 1 (Starker Kauf) bis 5 (Starker Verkauf) angezeigt. Die Daten stammen von Yahoo Finance. Wichtig: Analysten liegen nicht immer richtig und haben manchmal Interessenkonflikte – diese Einschätzung ist ein Zusatzindikator, kein alleiniger Entscheidungsgrund.",
-    signal: "🟢 Kaufsignal: Durchschnitt 1,0 bis 2,0 – Mehrheit der Analysten empfiehlt Kauf. | ⚪ Neutral: 2,5 bis 3,5 – Analysten uneinig oder Halten-Empfehlung. | 🔴 Verkaufssignal: 4,0 bis 5,0 – Mehrheit empfiehlt Verkauf."
-  },
-  "Kursziel": {
-    name: "Analysten-Kursziel (Durchschnitt aller Analysten)",
-    calc: "Jeder Analyst, der eine Empfehlung abgibt, nennt auch ein Kursziel – den Kurs, den er innerhalb der nächsten 12 Monate erwartet. Hier wird der Durchschnitt aller Kursziele angezeigt. Ein Kursziel deutlich über dem aktuellen Kurs bedeutet: Die Analysten sehen Aufwärtspotenzial. Ein Kursziel darunter bedeutet: Analysten erwarten fallende Kurse.",
-    signal: "🟢 Kaufsignal: Kursziel liegt mehr als 10% über aktuellem Kurs – Analysten sehen deutliches Aufwärtspotenzial. | ⚪ Neutral: Kursziel liegt 0 bis 10% über aktuellem Kurs. | 🔴 Verkaufssignal: Kursziel liegt unter aktuellem Kurs – Analysten erwarten Kursrückgang."
-  },
+  "RSI (14)":{name:"Relative Stärke Index (RSI)",calc:"Misst das Verhältnis von durchschnittlichen Kursgewinnen zu -verlusten der letzten 14 Tage. Wert 0–100. Niedriger Wert = zu stark gefallen (Kaufchance). Hoher Wert = zu stark gestiegen (Verkaufrisiko).",signal:"🟢 Kauf: RSI < 30 (überverkauft). 🔴 Verkauf: RSI > 70 (überkauft). Neutral: 30–70."},
+  "MACD":{name:"MACD – Moving Average Convergence Divergence",calc:"Differenz zwischen 12-Tage-EMA und 26-Tage-EMA. Positiver Wert = kurzfristiger Trend stärker als langfristiger.",signal:"🟢 Kauf: MACD kreuzt Signallinie von unten. 🔴 Verkauf: MACD kreuzt Signallinie von oben."},
+  "MACD Signal":{name:"MACD Signallinie (9-Tage-EMA des MACD)",calc:"Glättet den MACD. Kreuzung mit MACD-Linie erzeugt das eigentliche Signal.",signal:"🟢 Kauf: MACD steigt über Signallinie. 🔴 Verkauf: MACD fällt unter Signallinie."},
+  "BB %B":{name:"Bollinger Bands %B – Position im Band",calc:"0 = am unteren Band, 0,5 = Mitte, 1 = oberes Band. Werte außerhalb 0–1 zeigen Extremzustände.",signal:"🟢 Kauf: %B < 0,05. 🔴 Verkauf: %B > 0,95."},
+  "Stoch %K":{name:"Stochastik %K – Schnelle Linie",calc:"Wo liegt der heutige Kurs in der 14-Tage-Handelsspanne? 100% = am Hoch, 0% = am Tief.",signal:"🟢 Kauf: %K < 20 und steigt über %D. 🔴 Verkauf: %K > 80 und fällt unter %D."},
+  "Stoch %D":{name:"Stochastik %D – Signallinie (3-Tage-Glättung)",calc:"3-Tage-Durchschnitt von %K. Langsamer, filtert Fehlsignale.",signal:"Signal entsteht durch Kreuzung mit %K (wie MACD/Signal)."},
+  "EMA 20":{name:"EMA 20 – Kurzfristiger Trend (4 Wochen)",calc:"Gewichteter Durchschnitt der letzten 20 Tage. Neuere Kurse stärker gewichtet.",signal:"🟢 Kurs > EMA 20: Kurzfristiger Auftrend. 🔴 Kurs < EMA 20: Kurzfristiger Abtrend."},
+  "EMA 50":{name:"EMA 50 – Mittelfristiger Trend (10 Wochen)",calc:"Golden Cross (EMA20 > EMA50) ist eines der stärksten Kaufsignale.",signal:"🟢 Golden Cross: EMA20 über EMA50. 🔴 Death Cross: EMA20 unter EMA50."},
+  "EMA 100":{name:"EMA 100 – Mittelfristiger bis langfristiger Trend",calc:"Zeigt den 20-Wochen-Trend. Kurs darüber = mittelfristig bullisch.",signal:"🟢 Kurs > EMA 100. 🔴 Kurs < EMA 100."},
+  "EMA 200":{name:"EMA 200 – Wichtigster Langfrist-Indikator (40 Wochen)",calc:"Trennt Bullenmärkte von Bärenmärkten. Institutional beobachtet.",signal:"🟢 Kurs über EMA 200: Langfristig bullisch. 🔴 Darunter: Langfristig bärisch."},
+  "ADX":{name:"ADX – Trendstärke (nicht Richtung!)",calc:"< 20: Seitwärtsmarkt (Trendfolger deaktiviert). 20–25: Trend entsteht. > 25: Starker Trend.",signal:"ADX > 25 + +DI > -DI = starker Auftrend. ADX > 25 + -DI > +DI = starker Abtrend."},
+  "+DI":{name:"+DI – Stärke der Aufwärtsbewegungen",calc:"Misst relative Stärke der Aufwärtsbewegungen.",signal:"🟢 +DI > -DI bei ADX > 25: Long-Signal."},
+  "-DI":{name:"-DI – Stärke der Abwärtsbewegungen",calc:"Misst relative Stärke der Abwärtsbewegungen.",signal:"🔴 -DI > +DI bei ADX > 25: Short-Signal."},
+  "Marktphase":{name:"Marktphase (ADX-basiert)",calc:"Trendmarkt: ADX > 25 – Trendfolger aktiv, Oszillatoren gedämpft.\nSeitwärtsmarkt: ADX < 20 – Oszillatoren aktiv, Trendfolger deaktiviert.",signal:"Beeinflusst die Gewichtung aller anderen Indikatoren im Score."},
+  "Williams %R":{name:"Williams %R – Schneller Überverkauft/Überkauft-Indikator",calc:"0 bis -100. Nahe 0: am Hoch (überkauft). Nahe -100: am Tief (überverkauft). Reagiert schneller als RSI.",signal:"🟢 Kauf: < -80. 🔴 Verkauf: > -20."},
+  "CCI (20)":{name:"CCI – Commodity Channel Index",calc:"Misst Abweichung vom 20-Tage-Durchschnitt. > +100 = überkauft. < -100 = überverkauft.",signal:"🟢 Kauf: < -100 und steigt. 🔴 Verkauf: > +100 und fällt."},
+  "OBV Trend":{name:"OBV – Volumen-basierter Trendindikator",calc:"Addiert Volumen an Aufwärtstagen, subtrahiert es an Abwärtstagen. Zeigt ob Smart Money kauft oder verkauft.",signal:"🟢 Bullisch: OBV steigt. 🔴 Bärisch: OBV fällt. Divergenz zum Kurs ist starkes Signal."},
+  "ATR (14)":{name:"ATR – Durchschnittliche Tagesrange (14 Tage)",calc:"Zeigt wie viel Euro eine Aktie täglich bewegt. Basis für Stop-Loss-Berechnung.",signal:"Kein direktes Signal. Hoher ATR = höheres Risiko und größere SL-Abstände nötig."},
+  "ATR %":{name:"ATR % – Relative Volatilität",calc:"ATR in % des Kurses. Vergleichbar zwischen verschiedenen Aktien.",signal:"< 1%: sehr ruhig. 1–3%: normal. > 5%: sehr volatil – Score wird um 50% reduziert!"},
+  "⚠️ Volatilität":{name:"Volatilitätswarnung",calc:"ATR% liegt über 5%. Der Signalscore wurde automatisch halbiert. Größere Stop-Loss-Abstände und kleinere Positionsgrößen sind angebracht.",signal:"🔴 Vorsicht: Erhöhtes Risiko durch hohe Kursschwankungen."},
+  "Pivot":{name:"Pivot Point – Tages-Referenzpunkt",calc:"(gestriges Hoch + Tief + Schluss) ÷ 3. Trennt bullische Zone (darüber) von bärischer Zone (darunter).",signal:"🟢 Kurs > Pivot: Käufer in Kontrolle. 🔴 Kurs < Pivot: Verkäufer dominieren."},
+  "R1":{name:"R1 – Erster Widerstand",calc:"Häufigster Widerstand bei Aufwärtsbewegungen. Formel: (2 × Pivot) − gestriges Tief.",signal:"🔴 Kurs an R1: Häufig Gewinnmitnahmen. Durchbruch nach oben = starkes Signal."},
+  "R2":{name:"R2 – Zweiter, stärkerer Widerstand",calc:"Stärker als R1. Selten an einem Tag erreicht.",signal:"🔴 Kurs an R2: Starke Verkaufszone, Korrektur wahrscheinlich."},
+  "S1":{name:"S1 – Erste Unterstützung",calc:"Erstes Auffangnetz. Formel: (2 × Pivot) − gestriges Hoch.",signal:"🟢 Kurs an S1 und hält: Kaufgelegenheit. Bruch nach unten → S2."},
+  "S2":{name:"S2 – Zweite, stärkere Unterstützung",calc:"Stärker als S1. Häufig Wendepunkt.",signal:"🟢 Kurs an S2 und hält: Starke Kaufzone. Bruch darunter: erheblicher Abwärtsdruck."},
+  "52W Hoch":{name:"52-Wochen-Hoch",calc:"Höchster Kurs der letzten 12 Monate. Psychologischer Widerstand.",signal:"🔴 Nähe zum Hoch: Verkaufsdruck. Ausbruch darüber mit Volumen = starkes Kaufsignal."},
+  "52W Tief":{name:"52-Wochen-Tief",calc:"Niedrigster Kurs der letzten 12 Monate. Wichtige Unterstützungszone.",signal:"🟢 Nähe zum Tief: Mögliche Einstiegschance. Bruch darunter = starkes Warnsignal."},
+  "52W Position":{name:"Position im 52-Wochen-Band",calc:"0% = am Jahrestief. 100% = am Jahreshoch.",signal:"🟢 < 15%: Nahe Jahrestief, günstig. 🔴 > 85%: Nahe Jahreshoch, teuer."},
+  "ROC (10)":{name:"ROC – Kursveränderung der letzten 10 Tage",calc:"Misst die prozentuale Preisbewegung. Einfaches Momentum-Maß.",signal:"Kreuzung von negativ auf positiv = Trendwende nach oben (und umgekehrt)."},
 };
 
 function showIndInfo(key) {
-  const info = IND_INFO[key];
-  if (!info) return;
+  const info = IND_INFO[key]; if (!info) return;
   let popup = document.getElementById('ind-popup');
   if (!popup) {
-    popup = document.createElement('div');
-    popup.id = 'ind-popup';
-    popup.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
-    popup.onclick = (e) => { if(e.target===popup) popup.remove(); };
+    popup = document.createElement('div'); popup.id='ind-popup';
+    popup.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    popup.onclick=(e)=>{ if(e.target===popup) popup.remove(); };
     document.body.appendChild(popup);
   }
-  popup.innerHTML = `<div style="background:var(--bg);border-radius:16px;padding:20px;max-width:420px;width:100%;border:1px solid var(--b);max-height:80vh;overflow-y:auto">
+  popup.innerHTML=`<div style="background:var(--bg);border-radius:16px;padding:20px;max-width:420px;width:100%;border:1px solid var(--b);max-height:80vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-      <div style="font-size:15px;font-weight:700;color:var(--text);flex:1">${info.name}</div>
+      <div style="font-size:15px;font-weight:700;flex:1">${info.name}</div>
       <button onclick="document.getElementById('ind-popup').remove()" style="background:var(--s2);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;margin-left:8px;flex-shrink:0">✕</button>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Berechnung</div>
-    <div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:14px">${info.calc}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Handelssignale</div>
+    <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Erklärung</div>
+    <div style="font-size:13px;line-height:1.6;margin-bottom:12px;white-space:pre-line">${info.calc}</div>
+    <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Signale</div>
     <div style="font-size:13px;line-height:1.8">${info.signal.replace(/🟢/g,'<span style="color:var(--green)">🟢</span>').replace(/🔴/g,'<span style="color:var(--red)">🔴</span>')}</div>
   </div>`;
 }
 
-// ── Indicator signal evaluation ───────────────────────────────────────────────
-function evalIndicator(key, rawVal) {
-  // Returns {signal:'buy'|'sell'|'neutral', emoji, thresholds:string, valClass}
-  const v = parseFloat(rawVal);
-  const na = {signal:'neutral', emoji:'⚪', thresholds:'', valClass:'ind-val-neutral'};
-  if (isNaN(v)) {
-    // Handle string values
-    const s = String(rawVal).toLowerCase();
-    if (key === 'OBV Trend') {
-      if (s.includes('bull')) return {signal:'buy', emoji:'🟢', thresholds:'Bullisch = Kauf · Bärisch = Verkauf', valClass:'ind-val-buy'};
-      if (s.includes('bär')) return {signal:'sell', emoji:'🔴', thresholds:'Bullisch = Kauf · Bärisch = Verkauf', valClass:'ind-val-sell'};
-    }
-    return na;
-  }
-  switch(key) {
-    case 'RSI (14)':
-      if (v < 30) return {signal:'buy',  emoji:'🟢', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-buy'};
-      if (v < 40) return {signal:'buy',  emoji:'🟡', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-buy'};
-      if (v > 70) return {signal:'sell', emoji:'🔴', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-sell'};
-      if (v > 60) return {signal:'sell', emoji:'🟠', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< 30 Kauf · 30–70 Neutral · > 70 Verkauf', valClass:'ind-val-neutral'};
-    case 'BB %B':
-      if (v < 0.05) return {signal:'buy',  emoji:'🟢', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-buy'};
-      if (v < 0.2)  return {signal:'buy',  emoji:'🟡', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-buy'};
-      if (v > 0.95) return {signal:'sell', emoji:'🔴', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-sell'};
-      if (v > 0.8)  return {signal:'sell', emoji:'🟠', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< 0.05 Kauf · 0.05–0.95 Neutral · > 0.95 Verkauf', valClass:'ind-val-neutral'};
-    case 'Stoch %K':
-    case 'Stoch %D':
-      if (v < 20) return {signal:'buy',  emoji:'🟢', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-buy'};
-      if (v > 80) return {signal:'sell', emoji:'🔴', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< 20 Kauf · 20–80 Neutral · > 80 Verkauf', valClass:'ind-val-neutral'};
-    case 'Williams %R':
-      if (v < -80) return {signal:'buy',  emoji:'🟢', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-buy'};
-      if (v > -20) return {signal:'sell', emoji:'🔴', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< −80 Kauf · −80–−20 Neutral · > −20 Verkauf', valClass:'ind-val-neutral'};
-    case 'CCI (20)':
-      if (v < -100) return {signal:'buy',  emoji:'🟢', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-buy'};
-      if (v > 100)  return {signal:'sell', emoji:'🔴', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< −100 Kauf · −100–100 Neutral · > 100 Verkauf', valClass:'ind-val-neutral'};
-    case 'ADX':
-      if (v > 40) return {signal:'buy',  emoji:'🟢', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend · > 40 sehr stark', valClass:'ind-val-buy'};
-      if (v > 25) return {signal:'buy',  emoji:'🟡', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend · > 40 sehr stark', valClass:'ind-val-buy'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< 20 kein Trend · 20–25 Trend entsteht · > 25 starker Trend', valClass:'ind-val-neutral'};
-    case '+DI':
-    case '-DI':
-      return {signal:'neutral', emoji:'⚪', thresholds:'+DI > −DI = Auftrend · −DI > +DI = Abtrend', valClass:'ind-val-neutral'};
-    case '52W Position':
-      if (v < 15) return {signal:'buy',  emoji:'🟢', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-buy'};
-      if (v > 85) return {signal:'sell', emoji:'🔴', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'< 15% nahe Tief = Kauf · > 85% nahe Hoch = Verkauf', valClass:'ind-val-neutral'};
-    case 'MACD':
-    case 'MACD Signal':
-      if (v > 0) return {signal:'buy',  emoji:'🟢', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-buy'};
-      if (v < 0) return {signal:'sell', emoji:'🔴', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-sell'};
-      return {signal:'neutral', emoji:'⚪', thresholds:'> 0 bullisch · < 0 bärisch', valClass:'ind-val-neutral'};
-    default:
-      return na;
-  }
-}
-
 function renderIndicators(d) {
-  const ind = d.indicators||{};
+  const ind   = d.indicators||{};
   const tbody = document.getElementById('ind-body');
 
-  // Group rows by category for section headers
-  const categories = {
-    'Momentum': ['RSI (14)', 'MACD', 'MACD Signal', 'Williams %R', 'CCI (20)', 'ROC (10)'],
-    'Volatilität': ['BB %B', 'BB Upper', 'BB Lower', 'ATR (14)', 'ATR %'],
-    'Trend': ['Stoch %K', 'Stoch %D', 'EMA 20', 'EMA 50', 'EMA 100', 'EMA 200', 'ADX', '+DI', '-DI', 'OBV Trend'],
-    'Level': ['Pivot', 'R1', 'R2', 'S1', 'S2', '52W Hoch', '52W Tief', '52W Position'],
-  };
-  const catOrder = ['Momentum', 'Volatilität', 'Trend', 'Level'];
-  const assigned = new Set();
+  // Volatilitätswarnung
+  const volBox = document.getElementById('vol-warning-box');
+  if (d.high_volatility) {
+    volBox.innerHTML=`<div class="vol-warning">⚠️ <strong>Hohe Volatilität (ATR > 5%)</strong> – Signalstärke wurde automatisch halbiert. Positionsgröße entsprechend reduzieren!</div>`;
+  } else volBox.innerHTML='';
 
-  let html = '';
-
-  const renderRow = (k, v) => {
-    assigned.add(k);
-    const hasInfo = !!IND_INFO[k];
-    const ev = evalIndicator(k, v);
-    // Format value display with color class
-    const displayVal = String(v);
-    return `<tr>
-      <td style="color:var(--muted)">
-        ${k}
-        ${hasInfo?`<button onclick="showIndInfo('${k}')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>`:''}
-      </td>
-      <td style="text-align:center"><span class="ind-signal">${ev.emoji}</span></td>
-      <td style="font-family:monospace;text-align:right" class="${ev.valClass}">${displayVal}</td>
-      <td style="text-align:right"><div class="ind-threshold">${ev.thresholds||'—'}</div></td>
-    </tr>`;
-  };
-
-  catOrder.forEach(cat => {
-    const keys = categories[cat].filter(k => ind[k] !== undefined);
-    if (!keys.length) return;
-    html += `<tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">${cat}</td></tr>`;
-    keys.forEach(k => { html += renderRow(k, ind[k]); });
-  });
-
-  // Any remaining keys not in categories
-  const remaining = Object.entries(ind).filter(([k]) => !assigned.has(k));
-  if (remaining.length) {
-    html += `<tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Sonstige</td></tr>`;
-    remaining.forEach(([k,v]) => { html += renderRow(k, v); });
-  }
-
-  tbody.innerHTML = html;
-
+  // Analysten-Info (nur als Information, nicht als Handlungssignal)
+  const analBox = document.getElementById('analyst-info-box');
   if (d.analyst?.recommendation) {
-    const rec = d.analyst.recommendation;
-    const recSignal = rec.includes('Kauf') ? '🟢' : rec.includes('Verkauf') ? '🔴' : '⚪';
-    const recClass = rec.includes('Kauf') ? 'ind-val-buy' : rec.includes('Verkauf') ? 'ind-val-sell' : 'ind-val-neutral';
-    tbody.innerHTML += `
-      <tr><td colspan="4" style="background:var(--s2);color:var(--gold);font-size:11px;padding:5px 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:700">
-        Analysten
-        <button onclick="showIndInfo('Analysten')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>
-      </td></tr>
-      <tr>
-        <td style="color:var(--muted)">Empfehlung</td>
-        <td style="text-align:center"><span class="ind-signal">${recSignal}</span></td>
-        <td style="font-family:monospace;text-align:right" class="${recClass}">${rec}</td>
-        <td><div class="ind-threshold">1–2 Kauf · 3 Halten · 4–5 Verkauf</div></td>
-      </tr>
-      <tr>
-        <td style="color:var(--muted)">Anzahl Analysten</td>
-        <td></td><td style="font-family:monospace;text-align:right">${d.analyst.analysts}</td><td></td>
-      </tr>
-      ${d.analyst.target?`<tr>
-        <td style="color:var(--muted)">Kursziel <button onclick="showIndInfo('Kursziel')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button></td>
-        <td></td><td style="font-family:monospace;text-align:right">${fmt(d.analyst.target)}</td>
-        <td><div class="ind-threshold">Kursziel der Analysten</div></td>
-      </tr>`:''}`;
+    const upside = d.analyst.target ? ((d.analyst.target / d.price - 1)*100).toFixed(1) : null;
+    analBox.innerHTML=`<div class="analyst-info">ℹ️ <strong>Analysten (nur zur Information, fließt nicht in den Score ein):</strong><br>
+      ${d.analyst.recommendation} · ${d.analyst.analysts} Analysten${upside ? ` · Kursziel: ${fmt(d.analyst.target)} (${upside>0?'+':''}${upside}%)` : ''}</div>`;
+  } else analBox.innerHTML='';
+
+  // Indikatoren-Tabelle
+  // Filtere Analysten-Felder aus der Tabelle (werden separat oben angezeigt)
+  const filtered = Object.entries(ind).filter(([k]) => k !== 'Analysten' && k !== 'Kursziel');
+  tbody.innerHTML = filtered.map(([k,v])=>{
+    const hasInfo = !!IND_INFO[k];
+    const isWarn  = k.includes('⚠️') || String(v).includes('ERHÖHT');
+    return `<tr${isWarn?' style="background:rgba(239,68,68,.04)"':''}>
+      <td style="color:var(--muted)">
+        ${k}${hasInfo?`<button onclick="showIndInfo('${k}')" style="margin-left:5px;background:var(--gold);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;font-weight:700;line-height:1;padding:0;vertical-align:middle">i</button>`:''}
+      </td>
+      <td style="font-family:monospace;text-align:right;color:${isWarn?'var(--red)':'var(--text)'}">${v}</td>
+    </tr>`;
+  }).join('');
+
+  // Score-Aufschlüsselung anzeigen wenn vorhanden
+  if (d.score_detail) {
+    const sd = d.score_detail;
+    tbody.innerHTML += `<tr style="background:var(--s2)">
+      <td colspan="2" style="color:var(--gold);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:8px">Score-Aufschlüsselung</td>
+    </tr>
+    <tr><td style="color:var(--muted)">Momentum (A)</td><td style="font-family:monospace;text-align:right;color:${sd.momentum>0?'var(--green)':sd.momentum<0?'var(--red)':'var(--muted)'}">${sd.momentum>0?'+':''}${sd.momentum}</td></tr>
+    <tr><td style="color:var(--muted)">Trendfolger (B)</td><td style="font-family:monospace;text-align:right;color:${sd.trend>0?'var(--green)':sd.trend<0?'var(--red)':'var(--muted)'}">${sd.trend>0?'+':''}${sd.trend}</td></tr>
+    <tr><td style="color:var(--muted)">Marktstruktur (C)</td><td style="font-family:monospace;text-align:right;color:${sd.structure>0?'var(--green)':sd.structure<0?'var(--red)':'var(--muted)'}">${sd.structure>0?'+':''}${sd.structure}</td></tr>
+    <tr><td style="color:var(--muted)">Bestätigende Gruppen</td><td style="font-family:monospace;text-align:right;color:var(--gold)">${d.confirming_groups||'?'}/3</td></tr>`;
   }
 }
 
 // ── Mini Futures ──────────────────────────────────────────────────────────────
 function setMFDir(dir) {
   curMFDir = dir;
-  document.getElementById('mf-long-btn').className='btn btn-'+(dir==='BUY'?'buy':'secondary');
+  document.getElementById('mf-long-btn').className ='btn btn-'+(dir==='BUY'?'buy':'secondary');
   document.getElementById('mf-short-btn').className='btn btn-'+(dir==='SELL'?'sell':'secondary');
   document.getElementById('mf-long-btn').style.margin='0';
   document.getElementById('mf-short-btn').style.margin='0';
@@ -1018,11 +759,9 @@ function setMFDir(dir) {
 
 async function loadMF(ticker, dir) {
   document.getElementById('mf-list').innerHTML='<div style="color:var(--muted);font-size:13px;padding:16px 0">Lade Mini-Futures…</div>';
-  document.getElementById('mf-order-box').style.display='none';
-  selMF = null;
   try {
     const res = await fetch(`${API}/api/mini-futures/${encodeURIComponent(ticker)}?direction=${dir}`);
-    const d = await res.json();
+    const d   = await res.json();
     renderMF(d.products||[]);
   } catch(e) {
     document.getElementById('mf-list').innerHTML='<div style="color:var(--red);font-size:13px">Fehler beim Laden</div>';
@@ -1031,18 +770,18 @@ async function loadMF(ticker, dir) {
 
 function renderMF(products) {
   const c = document.getElementById('mf-list');
-  if (!products.length) { c.innerHTML='<div class="empty">Keine Produkte verfügbar</div>'; return; }
-  c.innerHTML = products.map((p,i) => {
-    const riskClass = p.risk_level==='Niedrig'?'risk-low':p.risk_level==='Mittel'?'risk-mid':'risk-high';
-    const pJson = JSON.stringify(p).replace(/'/g,"&#39;").replace(/"/g,"&quot;");
+  if (!products.length){c.innerHTML='<div class="empty">Keine Produkte verfügbar</div>';return;}
+  window._mfProducts = products;
+  c.innerHTML = products.map((p,i)=>{
+    const rClass = p.risk_level==='Niedrig'?'risk-low':p.risk_level==='Mittel'?'risk-mid':'risk-high';
     return `<div class="mf-card" id="mfc${i}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:22px;font-weight:800;color:var(--gold)">x${p.leverage}</div>
-        <span class="${riskClass}" style="font-size:11px;font-weight:600">${p.risk_level} Risiko</span>
+        <span class="${rClass}" style="font-size:11px;font-weight:600">${p.risk_level} Risiko</span>
       </div>
       <div class="mf-grid">
         <div><div class="mf-label">Knock-Out</div><div class="mf-val">${fmt(p.knock_out)}</div></div>
-        <div><div class="mf-label">MF-Preis</div><div class="mf-val">${fmt(p.mini_future_price)}</div></div>
+        <div><div class="mf-label">MF-Preis (sim.)</div><div class="mf-val">${fmt(p.mini_future_price)}</div></div>
         <div><div class="mf-label">Max. Verlust</div><div class="mf-val neg">${p.max_loss_pct}%</div></div>
         <div><div class="mf-label">Take Profit</div><div class="mf-val pos">${fmt(p.take_profit)}</div></div>
         <div><div class="mf-label">Stop-Loss</div><div class="mf-val neg">${fmt(p.stop_loss_level)}</div></div>
@@ -1057,53 +796,42 @@ function renderMF(products) {
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px">+ 10€ Ordergebühr</div>
         <button class="btn btn-gold" onclick="placeMFOrderInline(${i})">⚡ Jetzt kaufen (x${p.leverage} ${p.direction==='BUY'?'Long':'Short'})</button>
       </div>
-      <button class="btn btn-secondary" style="margin-top:10px;font-size:12px" onclick="toggleMFOrder(${i})">
-        🛒 Auswählen & kaufen
-      </button>
+      <button class="btn btn-secondary" style="margin-top:10px;font-size:12px" onclick="toggleMFOrder(${i})">🛒 Auswählen & kaufen</button>
     </div>`;
   }).join('');
-  // Store products globally for order placement
-  window._mfProducts = products;
 }
 
 function toggleMFOrder(i) {
   const box = document.getElementById('mf-order-'+i);
-  const isOpen = box.style.display !== 'none';
-  // Close all others
-  document.querySelectorAll('[id^="mf-order-"]').forEach(el => el.style.display='none');
-  document.querySelectorAll('.mf-card').forEach(c => c.classList.remove('sel'));
+  const isOpen = box.style.display!=='none';
+  document.querySelectorAll('[id^="mf-order-"]').forEach(el=>el.style.display='none');
+  document.querySelectorAll('.mf-card').forEach(c=>c.classList.remove('sel'));
   if (!isOpen) {
-    box.style.display = 'block';
+    box.style.display='block';
     document.getElementById('mfc'+i).classList.add('sel');
-    box.scrollIntoView({behavior:'smooth', block:'nearest'});
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
   }
 }
 
 async function placeMFOrderInline(i) {
   const product = window._mfProducts[i];
-  const amount = parseFloat(document.getElementById('mf-amt-'+i).value)||500;
+  const amount  = parseFloat(document.getElementById('mf-amt-'+i).value)||500;
   if (!product||!curSignal) return;
   try {
     const res = await fetch(`${API}/api/trade/open`,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        ticker:curSignal.ticker,
-        name:curSignal.name+' x'+product.leverage,
-        direction:product.direction,
-        price:product.mini_future_price,
-        stop_loss:product.stop_loss_level,
-        take_profit:product.take_profit,
-        score:curSignal.score||50,
-        signals:['Mini-Future x'+product.leverage],
-        leverage:product.leverage,
-        invest_amount:amount,
-        is_mini_future:true,
-        mini_future_leverage:product.leverage
+        ticker:curSignal.ticker, name:curSignal.name+' x'+product.leverage,
+        direction:product.direction, price:product.mini_future_price,
+        stop_loss:product.stop_loss_level, take_profit:product.take_profit,
+        score:curSignal.score||50, signals:['Mini-Future x'+product.leverage],
+        leverage:product.leverage, invest_amount:amount,
+        is_mini_future:true, mini_future_leverage:product.leverage
       })
     });
     const d = await res.json();
     if (res.ok) {
-      toast(`✅ Mini-Future x${product.leverage} ins Depot gebucht! (−10€ Gebühr)`,'ok');
+      toast(`✅ Mini-Future x${product.leverage} gebucht! (−10€ Gebühr)`,'ok');
       document.getElementById('mf-order-'+i).style.display='none';
       document.getElementById('mfc'+i).classList.remove('sel');
       setTimeout(backupPortfolio, 1000);
@@ -1111,69 +839,66 @@ async function placeMFOrderInline(i) {
   } catch(e){toast('Fehler beim Buchen','err');}
 }
 
-function selectMF(i, product) {
-  toggleMFOrder(i);
-}
-
-async function placeMFOrder() {
-  if (!selMF||!curSignal) return;
-  const amount = parseFloat(document.getElementById('mf-amount').value)||500;
-  try {
-    const res = await fetch(`${API}/api/trade/open`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        ticker:curSignal.ticker,
-        name:curSignal.name+' x'+selMF.leverage,
-        direction:selMF.direction,
-        price:selMF.mini_future_price,
-        stop_loss:selMF.stop_loss_level,
-        take_profit:selMF.take_profit,
-        score:curSignal.score||50,
-        signals:['Mini-Future x'+selMF.leverage],
-        leverage:selMF.leverage,
-        invest_amount:amount,
-        is_mini_future:true,
-        mini_future_leverage:selMF.leverage
-      })
-    });
-    const d = await res.json();
-    if (res.ok) {
-      toast(`✅ Mini-Future x${selMF.leverage} eröffnet (−10€ Gebühr)`,'ok');
-      closeModal();
-    } else toast(`❌ ${d.detail}`,'err');
-  } catch(e){toast('Fehler','err');}
-}
-
 // ── Portfolio ─────────────────────────────────────────────────────────────────
 async function loadPortfolio() {
   try {
-    const [pr,er] = await Promise.all([fetch(`${API}/api/portfolio`),fetch(`${API}/api/exit-signals`)]);
+    const [pr,er] = await Promise.all([
+      fetch(`${API}/api/portfolio`),
+      fetch(`${API}/api/exit-signals`)
+    ]);
     const pd = await pr.json();
     const ed = await er.json();
-    const s = pd.stats||{};
+    const s  = pd.stats||{};
     const pnl = s.total_pnl||0;
 
-    document.getElementById('p-value').textContent=fmt(s.total_value)+'€';
-    const el=document.getElementById('p-pnl');
+    document.getElementById('p-value').textContent = fmt(s.total_value)+'€';
+    const el = document.getElementById('p-pnl');
     el.textContent=(pnl>=0?'+':'')+fmt(pnl)+'€';
     el.className='stat-value '+(pnl>=0?'pos':'neg');
-    document.getElementById('p-cash').textContent=fmt(s.cash)+'€';
-    document.getElementById('p-trades').textContent=s.total_trades||0;
-    document.getElementById('p-wr').textContent=(s.win_rate||0)+'%';
-    // fees_paid from server already counts both open and close fees correctly
-    document.getElementById('p-fees').textContent=fmt(s.fees_paid||0)+'€';
+    document.getElementById('p-cash').textContent  = fmt(s.cash)+'€';
+    document.getElementById('p-trades').textContent = s.total_trades||0;
+    document.getElementById('p-wr').textContent     = (s.win_rate||0)+'%';
+    document.getElementById('p-fees').textContent   = fmt(s.fees_paid||0)+'€';
 
+    renderPortfolioLimits(s.limits);
     renderExitSignals(ed.exit_signals||[]);
     renderPositions(pd.portfolio?.positions||[]);
     renderHistory(pd.portfolio?.closed_trades||[]);
   } catch(e){}
 }
 
+function renderPortfolioLimits(limits) {
+  if (!limits) return;
+  const c = document.getElementById('portfolio-limits');
+  const posUsed   = limits.current_positions;
+  const posMax    = limits.max_positions;
+  const expUsed   = limits.current_exposure_pct;
+  const expMax    = limits.max_exposure_pct;
+  const posColor  = posUsed >= posMax ? 'limit-full' : posUsed >= posMax-1 ? 'limit-warn' : 'limit-ok';
+  const expColor  = expUsed >= expMax ? 'limit-full' : expUsed >= expMax*0.8 ? 'limit-warn' : 'limit-ok';
+
+  c.innerHTML=`<div class="card" style="padding:12px;margin-bottom:12px">
+    <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Portfolio-Risikolimits</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Positionen: <b style="color:var(--text)">${posUsed}/${posMax}</b></div>
+        <div class="limit-bar"><div class="limit-fill ${posColor}" style="width:${Math.min(100,posUsed/posMax*100)}%"></div></div>
+        ${limits.positions_limit_reached?'<div style="font-size:10px;color:var(--red);margin-top:3px">⛔ Limit erreicht</div>':''}
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Exposure: <b style="color:var(--text)">${expUsed}%/${expMax}%</b></div>
+        <div class="limit-bar"><div class="limit-fill ${expColor}" style="width:${Math.min(100,expUsed/expMax*100)}%"></div></div>
+        ${limits.exposure_limit_reached?'<div style="font-size:10px;color:var(--red);margin-top:3px">⛔ Limit erreicht</div>':''}
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderExitSignals(sigs) {
-  const c=document.getElementById('exit-list');
+  const c = document.getElementById('exit-list');
   if (!sigs.length){c.innerHTML='<div style="font-size:12px;color:var(--muted);padding:4px 0 12px">Keine Exit-Signale.</div>';return;}
   c.innerHTML=sigs.map(s=>{
-    const col=s.urgency==='urgent'?'var(--red)':'var(--gold)';
+    const col = s.urgency==='urgent'?'var(--red)':'var(--orange)';
     return `<div class="exit-card ${s.urgency}">
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <b>${s.name} · ${s.direction}</b>
@@ -1188,25 +913,27 @@ function renderExitSignals(sigs) {
 }
 
 function renderPositions(positions) {
-  const c=document.getElementById('positions-list');
+  const c = document.getElementById('positions-list');
   if (!positions.length){c.innerHTML='<div class="empty"><div class="empty-icon">📭</div>Keine offenen Positionen</div>';return;}
   c.innerHTML=positions.map(p=>{
-    const pnl=p.unrealized_pnl||0;
-    const lev=p.leverage>1?` · x${p.leverage} Hebel`:'';
-    return `<div class="pos-card" data-trade-id="${p.id}">
+    const pnl = p.unrealized_pnl||0;
+    const lev = p.leverage>1?` · x${p.leverage} Hebel`:'';
+    const riskInfo = p.risk_pct ? `· Risiko: ${p.risk_pct}%` : '';
+    return `<div class="pos-card" data-trade-id="${p.id}" data-ticker="${p.ticker}" data-entry="${p.entry_price}" data-direction="${p.direction}" data-units="${p.units}" data-lev="${p.leverage||1}" data-cost="${p.cost}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div>
           <div style="font-size:14px;font-weight:700">${p.name}</div>
           <span class="badge ${p.direction==='BUY'?'badge-buy':'badge-sell'}" style="font-size:10px;padding:2px 8px">${p.direction==='BUY'?'▲ LONG':'▼ SHORT'}${lev}</span>
+          ${riskInfo?`<span style="font-size:10px;color:var(--muted);margin-left:6px">${riskInfo}</span>`:''}
         </div>
         <div style="text-align:right">
-          <div style="font-family:monospace;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${fmt(pnl)}€</div>
+          <div class="pos-pnl" style="font-family:monospace;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${fmt(pnl)}€</div>
           <div style="font-size:11px;color:var(--muted)">${p.unrealized_pnl_pct>=0?'+':''}${p.unrealized_pnl_pct||0}%</div>
         </div>
       </div>
       <div class="pos-details">
         <div><div class="pd-label">Einstieg</div><div class="pd-value">${fmt(p.entry_price)}</div></div>
-        <div><div class="pd-label">Aktuell</div><div class="pd-value">${fmt(p.current_price)}</div></div>
+        <div><div class="pd-label">Aktuell</div><div class="pd-value pos-cur-price">${fmt(p.current_price)}</div></div>
         <div><div class="pd-label">Stop Loss</div><div class="pd-value neg">${fmt(p.stop_loss)}</div></div>
         <div><div class="pd-label">Take Profit</div><div class="pd-value pos">${fmt(p.take_profit)}</div></div>
       </div>
@@ -1218,11 +945,11 @@ function renderPositions(positions) {
 }
 
 function renderHistory(trades) {
-  const c=document.getElementById('history-list');
+  const c = document.getElementById('history-list');
   if (!trades.length){c.innerHTML='<div class="empty" style="padding:20px"><div class="empty-icon">📋</div>Noch keine Trades</div>';return;}
   c.innerHTML=[...trades].reverse().map(t=>{
-    const pnl=t.pnl||0;
-    const date=new Date(t.closed).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
+    const pnl  = t.pnl||0;
+    const date = new Date(t.closed).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
     return `<div class="trade-row">
       <div><div style="font-weight:600">${t.name}</div><div style="font-size:11px;color:var(--muted)">${t.direction} · ${date} · ${t.id} · Gebühren: 20€</div></div>
       <div style="text-align:right">
@@ -1236,9 +963,9 @@ function renderHistory(trades) {
 async function closeTrade(id, price) {
   if (!confirm(`Position ${id} zu ${price}€ schließen? (−10€ Gebühr)`)){ return; }
   try {
-    const res=await fetch(`${API}/api/trade/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trade_id:id,close_price:price})});
-    const d=await res.json();
-    if (res.ok){
+    const res = await fetch(`${API}/api/trade/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trade_id:id,close_price:price})});
+    const d   = await res.json();
+    if (res.ok) {
       toast(`Geschlossen: ${d.trade?.pnl>=0?'+':''}${fmt(d.trade?.pnl)}€ (nach Gebühren)`,d.trade?.pnl>=0?'ok':'err');
       loadPortfolio();
       setTimeout(backupPortfolio, 1000);
@@ -1246,7 +973,40 @@ async function closeTrade(id, price) {
   } catch(e){toast('Fehler','err');}
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+// ── Portfolio Live-Kurs-Update (nutzt /api/price) ─────────────────────────────
+async function updatePortfolioPrices() {
+  const posCards = document.querySelectorAll('[data-trade-id]');
+  if (!posCards.length) return;
+  for (const card of posCards) {
+    const ticker    = card.dataset.ticker;
+    const entry     = parseFloat(card.dataset.entry);
+    const direction = card.dataset.direction;
+    const units     = parseFloat(card.dataset.units);
+    const lev       = parseFloat(card.dataset.lev)||1;
+    const cost      = parseFloat(card.dataset.cost);
+    if (!ticker) continue;
+    try {
+      const res   = await fetch(`${API}/api/price/${encodeURIComponent(ticker)}`,{signal:AbortSignal.timeout(8000)});
+      if (!res.ok) continue;
+      const d     = await res.json();
+      const price = d.price;
+      const pnl   = direction==='BUY'
+        ? (price - entry) * units * lev
+        : (entry - price) * units * lev;
+      const pnlPct = cost > 0 ? (pnl/cost*100).toFixed(2) : '0.00';
+
+      const pnlEl  = card.querySelector('.pos-pnl');
+      const curEl  = card.querySelector('.pos-cur-price');
+      const closeBtn = card.querySelector('.btn-secondary');
+
+      if (pnlEl)  { pnlEl.textContent=`${pnl>=0?'+':''}${fmt(pnl)}€`; pnlEl.style.color=pnl>=0?'var(--green)':'var(--red)'; }
+      if (curEl)  { curEl.textContent=fmt(price); }
+      if (closeBtn){ closeBtn.textContent=`Position schließen (${fmt(price)}€)`; closeBtn.onclick=()=>closeTrade(card.dataset.tradeId,price); }
+    } catch(e){}
+  }
+}
+
+// ── Einstellungen ─────────────────────────────────────────────────────────────
 async function saveStrength(val) {
   try {
     await fetch(`${API}/api/settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({min_strength:parseInt(val)})});
@@ -1257,79 +1017,53 @@ async function saveStrength(val) {
 
 async function loadStrength() {
   try {
-    const res=await fetch(`${API}/api/settings`);
-    const d=await res.json();
-    const v=d.min_strength||60;
+    const res = await fetch(`${API}/api/settings`);
+    const d   = await res.json();
+    const v   = d.min_strength||20;
     document.getElementById('str-slider').value=v;
     document.getElementById('str-display').textContent=v;
   } catch(e){}
 }
 
-// ── Live Price Updates ───────────────────────────────────────────────────────
-async function updatePortfolioPrices() {
+async function resetPortfolio() {
+  if (!confirm('Portfolio wirklich zurücksetzen auf 10.000€?\nAlle Positionen und Trades werden gelöscht. Nicht rückgängig machbar!')) return;
   try {
-    const portRes = await fetch(`${API}/api/portfolio`);
-    const pd = await portRes.json();
-    const positions = pd.portfolio?.positions || [];
-    if (!positions.length) return;
-
-    // Fetch current price for each open position
-    for (const pos of positions) {
-      try {
-        const res = await fetch(`${API}/api/price/${encodeURIComponent(pos.ticker)}`);
-        const d = await res.json();
-        if (d.price) {
-          // Update position with current price via close/reopen would be complex
-          // Instead just show updated price in UI
-          const posEl = document.querySelector(`[data-trade-id="${pos.id}"]`);
-          if (posEl) {
-            const pnl = pos.direction === 'BUY'
-              ? (d.price - pos.entry_price) * pos.units * (pos.leverage||1)
-              : (pos.entry_price - d.price) * pos.units * (pos.leverage||1);
-            const pnlPct = (pnl / pos.cost * 100).toFixed(2);
-            const pnlEl = posEl.querySelector('.pos-pnl');
-            if (pnlEl) {
-              pnlEl.textContent = (pnl>=0?'+':'')+fmt(pnl)+'€';
-              pnlEl.style.color = pnl>=0?'var(--green)':'var(--red)';
-            }
-          }
-        }
-      } catch(e) {}
-    }
-    // Full reload for accurate totals
-    loadPortfolio();
-  } catch(e) {}
+    const res = await fetch(`${API}/api/portfolio/reset`,{method:'POST'});
+    const d   = await res.json();
+    if (res.ok) {
+      localStorage.removeItem('tb_portfolio_backup');
+      localStorage.removeItem('tb_portfolio_backup_time');
+      toast('✅ Portfolio zurückgesetzt auf 10.000€','ok');
+      setTimeout(()=>{ showTab('portfolio'); loadPortfolio(); }, 500);
+    } else toast('Fehler beim Zurücksetzen','err');
+  } catch(e){toast('Fehler','err');}
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────
-let _watchlistData = [];
+let _watchlistData   = [];
 let _watchlistFilter = 'all';
 
 async function loadWatchlist(forceRefresh=false) {
   const container = document.getElementById('watchlist-container');
-  if (!_watchlistData.length || forceRefresh) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft…<div style="font-size:12px;margin-top:6px;color:var(--muted)">Alle Werte werden analysiert</div></div>';
+  if (!_watchlistData.length||forceRefresh) {
+    container.innerHTML='<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft…</div>';
     try {
-      // Get signals with strength 0 to get ALL tickers
-      // First check cache
       const res = await fetch(`${API}/api/signals`);
-      const d = await res.json();
-      if (d.status === 'loading' || d.status === 'running') {
-        container.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft… ${d.progress||0}%<div class="progress-bar-bg" style="margin:12px 0"><div class="progress-bar-fill" style="width:${d.progress||0}%"></div></div></div>`;
-        setTimeout(() => loadWatchlist(false), 10000);
+      const d   = await res.json();
+      if (d.status==='loading'||d.status==='running') {
+        container.innerHTML=`<div class="empty"><div class="empty-icon">⏳</div>Analyse läuft… ${d.progress||0}%<div class="progress-bar-bg" style="margin:12px 0"><div class="progress-bar-fill" style="width:${d.progress||0}%"></div></div></div>`;
+        setTimeout(()=>loadWatchlist(false), 10000);
         return;
       }
-      // Get all results including weak signals
       const allRes = await fetch(`${API}/api/watchlist`);
       if (allRes.ok) {
         const allData = await allRes.json();
-        _watchlistData = allData.items || [];
+        _watchlistData = allData.items||[];
       } else {
-        // Fallback: use top signals from cache
-        _watchlistData = d.top_signals || [];
+        _watchlistData = d.top_signals||[];
       }
     } catch(e) {
-      container.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div>Fehler beim Laden</div>';
+      container.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div>Fehler beim Laden</div>';
       return;
     }
   }
@@ -1338,7 +1072,7 @@ async function loadWatchlist(forceRefresh=false) {
 
 function filterWatchlist(filter, btn) {
   _watchlistFilter = filter;
-  document.querySelectorAll('.wl-filter').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.wl-filter').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   renderWatchlist();
 }
@@ -1346,110 +1080,98 @@ function filterWatchlist(filter, btn) {
 function renderWatchlist() {
   const container = document.getElementById('watchlist-container');
   let items = _watchlistData;
-  if (_watchlistFilter === 'BUY') items = items.filter(x => x.direction === 'BUY');
-  else if (_watchlistFilter === 'SELL') items = items.filter(x => x.direction === 'SELL');
-  else if (_watchlistFilter === 'NEUTRAL') items = items.filter(x => !x.direction || x.strength < 20);
+  if (_watchlistFilter==='BUY')     items=items.filter(x=>x.direction==='BUY');
+  else if (_watchlistFilter==='SELL') items=items.filter(x=>x.direction==='SELL');
+  else if (_watchlistFilter==='NEUTRAL') items=items.filter(x=>!x.direction||x.strength<20);
 
-  if (!items.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>Keine Einträge für diesen Filter</div>';
+  if (!items.length){
+    container.innerHTML='<div class="empty"><div class="empty-icon">🔍</div>Keine Einträge für diesen Filter</div>';
     return;
   }
 
-  container.innerHTML = items.map(s => {
-    const dir = s.direction || 'NEUTRAL';
-    const rowClass = dir==='BUY'?'buy-row':dir==='SELL'?'sell-row':'neutral-row';
-    const badgeStyle = dir==='BUY'?'background:rgba(22,163,74,.15);color:var(--green)':dir==='SELL'?'background:rgba(239,68,68,.15);color:var(--red)':'background:var(--s2);color:var(--muted)';
+  container.innerHTML = items.map(s=>{
+    const dir       = s.direction||'NEUTRAL';
+    const rowClass  = dir==='BUY'?'buy-row':dir==='SELL'?'sell-row':'neutral-row';
+    const badgeStyle= dir==='BUY'?'background:rgba(22,163,74,.15);color:var(--green)':dir==='SELL'?'background:rgba(239,68,68,.15);color:var(--red)':'background:var(--s2);color:var(--muted)';
     const badgeText = dir==='BUY'?'▲ LONG':dir==='SELL'?'▼ SHORT':'⊘ NEUTRAL';
-    const strengthColor = s.strength>=70?'var(--green)':s.strength>=50?'#d97706':'var(--muted)';
+    const sColor    = s.strength>=70?'var(--green)':s.strength>=50?'#d97706':'var(--muted)';
+    const volFlag   = s.high_volatility?'<span style="font-size:9px;color:var(--red);margin-left:3px">⚠️</span>':'';
+    const phase     = s.market_phase ? `<span style="font-size:9px;color:var(--muted);margin-left:4px">${s.market_phase.split(' ')[0]}</span>` : '';
     return `<div class="wl-row ${rowClass}" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
       <div style="flex:1;min-width:0">
-        <div class="wl-name">${s.name}</div>
-        <div class="wl-ticker">${s.ticker}</div>
+        <div class="wl-name">${s.name}${volFlag}</div>
+        <div class="wl-ticker">${s.ticker}${phase}</div>
       </div>
       <div style="text-align:right">
         <div class="wl-price">${fmt(s.price)}</div>
-        <div style="font-size:10px;color:${strengthColor};font-weight:600">${s.strength||0}/100</div>
+        <div style="font-size:10px;color:${sColor};font-weight:600">${s.strength||0}/100</div>
       </div>
       <span class="wl-badge" style="${badgeStyle}">${badgeText}</span>
     </div>`;
   }).join('');
 }
 
-// ── Portfolio Backup/Restore (survives server restarts) ───────────────────────
+// ── Portfolio Backup/Restore ───────────────────────────────────────────────────
 async function backupPortfolio() {
   try {
-    const res = await fetch(`${API}/api/portfolio/backup`);
+    const res  = await fetch(`${API}/api/portfolio/backup`);
     const data = await res.json();
-    if (data.closed_trades !== undefined) {
+    if (data.closed_trades!==undefined) {
       localStorage.setItem('tb_portfolio_backup', JSON.stringify(data));
       localStorage.setItem('tb_portfolio_backup_time', new Date().toISOString());
     }
-  } catch(e) {}
+  } catch(e){}
 }
 
 async function restorePortfolioIfNeeded() {
   try {
-    // Check if server portfolio is empty (fresh restart)
-    const res = await fetch(`${API}/api/portfolio`);
-    const data = await res.json();
-    const serverEmpty = data.portfolio?.closed_trades?.length === 0 &&
-                        data.portfolio?.positions?.length === 0 &&
-                        Math.abs((data.portfolio?.cash||0) - 10000) < 0.01;
-
+    const res    = await fetch(`${API}/api/portfolio`);
+    const data   = await res.json();
+    const server_empty = data.portfolio?.closed_trades?.length===0 &&
+                         data.portfolio?.positions?.length===0 &&
+                         Math.abs((data.portfolio?.cash||0)-10000)<0.01;
     const backup = localStorage.getItem('tb_portfolio_backup');
-    if (serverEmpty && backup) {
-      const backupData = JSON.parse(backup);
-      const backupHasTrades = backupData.closed_trades?.length > 0 ||
-                              backupData.positions?.length > 0 ||
-                              Math.abs((backupData.cash||0) - 10000) > 0.01;
-      if (backupHasTrades) {
-        // Restore from backup
-        await fetch(`${API}/api/portfolio/restore`, {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: backup
+    if (server_empty&&backup) {
+      const bd = JSON.parse(backup);
+      const hasTrades = bd.closed_trades?.length>0 || bd.positions?.length>0 ||
+                        Math.abs((bd.cash||0)-10000)>0.01;
+      if (hasTrades) {
+        await fetch(`${API}/api/portfolio/restore`,{
+          method:'POST', headers:{'Content-Type':'application/json'}, body:backup
         });
-        toast('📂 Portfolio nach Server-Neustart wiederhergestellt', 'ok');
+        toast('📂 Portfolio nach Server-Neustart wiederhergestellt','ok');
       }
     }
-  } catch(e) {}
+  } catch(e){}
 }
 
-// Auto-backup every 2 minutes
+// ── Auto-Routinen ─────────────────────────────────────────────────────────────
 setInterval(backupPortfolio, 120000);
 
-// Auto-refresh analysis every 10 minutes
-setInterval(() => {
+setInterval(()=>{
   if (!document.hidden) {
     loadSignals();
-    // Also refresh portfolio prices if on portfolio tab
-    if (document.getElementById('page-portfolio').classList.contains('active')) {
-      loadPortfolio();
-    }
+    if (document.getElementById('page-portfolio').classList.contains('active')) loadPortfolio();
   }
-}, 10 * 60 * 1000);
+}, 10*60*1000);
 
-// Auto-refresh portfolio prices every 10 minutes if on portfolio tab
-setInterval(() => {
+// Live-Kurs-Update alle 5 Minuten wenn Portfolio-Tab aktiv
+setInterval(()=>{
   if (!document.hidden && document.getElementById('page-portfolio').classList.contains('active')) {
     updatePortfolioPrices();
   }
-}, 10 * 60 * 1000);
+}, 5*60*1000);
 
-// When app goes to background or is closed: mark current signals as seen
-document.addEventListener('visibilitychange', () => {
+document.addEventListener('visibilitychange',()=>{
   if (document.hidden) {
-    // App going to background - mark signals as seen
-    if (window._currentSignals && window._currentSignals.length) {
-      markSignalsSeen(window._currentSignals);
-    }
+    if (window._currentSignals?.length) markSignalsSeen(window._currentSignals);
   } else {
-    // App coming back to foreground
     backupPortfolio();
-    const lastLoad = parseInt(localStorage.getItem('tb_last_load')||'0');
-    if (Date.now() - lastLoad > 10 * 60 * 1000) {
+    const last = parseInt(localStorage.getItem('tb_last_load')||'0');
+    if (Date.now()-last > 10*60*1000) {
       loadSignals();
       if (document.getElementById('page-portfolio').classList.contains('active')) {
+        loadPortfolio();
         updatePortfolioPrices();
       }
     }
@@ -1457,24 +1179,13 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Also mark as seen when page is unloaded (browser closed/tab closed)
-window.addEventListener('beforeunload', () => {
-  if (window._currentSignals && window._currentSignals.length) {
-    markSignalsSeen(window._currentSignals);
-  }
-});
-window.addEventListener('pagehide', () => {
-  if (window._currentSignals && window._currentSignals.length) {
-    markSignalsSeen(window._currentSignals);
-  }
-});
+window.addEventListener('beforeunload',()=>{ if(window._currentSignals?.length) markSignalsSeen(window._currentSignals); });
+window.addEventListener('pagehide',()=>{ if(window._currentSignals?.length) markSignalsSeen(window._currentSignals); });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadSignals();
 loadStrength();
-// Restore portfolio on startup if server was restarted
 setTimeout(restorePortfolioIfNeeded, 3000);
-// Signals auto-refresh every 10 minutes (handled by visibility change + interval above)
 </script>
 </body>
 </html>
