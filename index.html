@@ -90,6 +90,9 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .close-btn{width:32px;height:32px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--text);cursor:pointer;font-size:18px}
 .modal-body{padding:14px}
 .chart-container{background:var(--s1);border:1px solid var(--b);border-radius:var(--r);padding:14px;margin-bottom:14px}
+.neu-badge{display:inline-block;background:#ef4444;color:white;font-size:9px;font-weight:800;padding:2px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;letter-spacing:.5px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.signal-card.new-signal{border-top:3px solid #ef4444}
 .wl-filter{padding:5px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--b);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer}
 .wl-filter.active{background:var(--gold);color:#fff;border-color:var(--gold)}
 .wl-row{display:flex;align-items:center;padding:10px 12px;background:var(--s1);border:1px solid var(--b);border-radius:var(--r);margin-bottom:6px;cursor:pointer;transition:border-color .15s}
@@ -410,13 +413,48 @@ async function loadSignals() {
   }
 }
 
+function getSeenSignals() {
+  try { return JSON.parse(localStorage.getItem('tb_seen_signals') || '[]'); } catch(e) { return []; }
+}
+
+function markSignalsSeen(signals) {
+  if (!signals || !signals.length) return;
+  const keys = signals.map(s => s.ticker + '_' + s.direction);
+  localStorage.setItem('tb_seen_signals', JSON.stringify(keys));
+}
+
 function renderSignals(signals) {
   const c = document.getElementById('signals-list');
-  if (!signals.length) { c.innerHTML='<div class="empty"><div class="empty-icon">🔍</div>Keine starken Signale aktuell</div>'; return; }
-  c.innerHTML = signals.map((s,i) => `
-    <div class="signal-card ${s.direction==='BUY'?'buy-card':'sell-card'}" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
+  if (!signals.length) {
+    c.innerHTML='<div class="empty"><div class="empty-icon">🔍</div>Keine starken Signale aktuell</div>';
+    return;
+  }
+
+  const seen = getSeenSignals();
+  const newOnes = seen.length > 0 ? signals.filter(s => !seen.includes(s.ticker+'_'+s.direction)) : [];
+  window._lastSignals = signals;
+
+  // New signals banner
+  let header = '';
+  if (newOnes.length > 0) {
+    header = `<div id="new-banner" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;font-weight:700;color:#ef4444">🔔 ${newOnes.length} neue${newOnes.length>1?'':'s'} Signal${newOnes.length>1?'e':''} seit letztem Besuch</span>
+      <button onclick="markAllSeen()" style="font-size:11px;background:var(--s2);border:1px solid var(--b);border-radius:8px;padding:4px 10px;cursor:pointer;color:var(--muted)">✓ Alle gesehen</button>
+    </div>`;
+  }
+
+  c.innerHTML = header + signals.map((s,i) => {
+    const isNew = seen.length > 0 && !seen.includes(s.ticker+'_'+s.direction);
+    return `
+    <div class="signal-card ${s.direction==='BUY'?'buy-card':'sell-card'}${isNew?' new-signal':''}" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")})'>
       <div class="signal-header">
-        <div><div class="signal-name">${s.name}</div><div class="signal-ticker">${s.ticker}</div></div>
+        <div>
+          <div class="signal-name">
+            ${s.name}
+            ${isNew?'<span class="neu-badge">NEU</span>':''}
+          </div>
+          <div class="signal-ticker">${s.ticker}</div>
+        </div>
         <span class="badge ${s.direction==='BUY'?'badge-buy':'badge-sell'}">${s.direction==='BUY'?'▲ LONG':'▼ SHORT'}</span>
       </div>
       <div class="prices">
@@ -442,8 +480,20 @@ function renderSignals(signals) {
         </button>
         <button class="btn btn-gold" onclick='openDetail(${JSON.stringify(s).replace(/'/g,"&#39;")},true)'>⚡ Mini-Future Zertifikate wählen</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
+  // Save current signals to mark as seen when app is closed
+  window._currentSignals = signals;
 }
+
+function markAllSeen() {
+  markSignalsSeen(window._lastSignals || []);
+  document.getElementById('new-banner')?.remove();
+  document.querySelectorAll('.neu-badge').forEach(b => b.remove());
+  document.querySelectorAll('.new-signal').forEach(c => c.classList.remove('new-signal'));
+}
+
 
 async function doRefresh() {
   const btn = document.getElementById('refresh-btn');
@@ -1269,11 +1319,16 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-// Also backup when page becomes visible again
+// When app goes to background or is closed: mark current signals as seen
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
+  if (document.hidden) {
+    // App going to background - mark signals as seen
+    if (window._currentSignals && window._currentSignals.length) {
+      markSignalsSeen(window._currentSignals);
+    }
+  } else {
+    // App coming back to foreground
     backupPortfolio();
-    // Refresh if tab was hidden for more than 10 minutes
     const lastLoad = parseInt(localStorage.getItem('tb_last_load')||'0');
     if (Date.now() - lastLoad > 10 * 60 * 1000) {
       loadSignals();
@@ -1282,6 +1337,18 @@ document.addEventListener('visibilitychange', () => {
       }
     }
     localStorage.setItem('tb_last_load', Date.now().toString());
+  }
+});
+
+// Also mark as seen when page is unloaded (browser closed/tab closed)
+window.addEventListener('beforeunload', () => {
+  if (window._currentSignals && window._currentSignals.length) {
+    markSignalsSeen(window._currentSignals);
+  }
+});
+window.addEventListener('pagehide', () => {
+  if (window._currentSignals && window._currentSignals.length) {
+    markSignalsSeen(window._currentSignals);
   }
 });
 
