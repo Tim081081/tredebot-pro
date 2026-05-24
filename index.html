@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>TradeBot Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--bg:#0a0a0a;--s1:#141414;--s2:#1c1c1c;--b:#2a2a2a;--gold:#f0b429;--green:#22c55e;--red:#ef4444;--text:#e8e8e8;--muted:#666;--r:12px}
@@ -101,6 +104,8 @@ main{padding:14px;max-width:800px;margin:0 auto}
 .mf-label{color:var(--muted)}.mf-val{font-family:monospace;font-weight:600}
 .risk-low{color:var(--green)}.risk-mid{color:var(--gold)}.risk-high{color:var(--red)}
 @keyframes spin{to{transform:rotate(360deg)}}
+.period-btn{padding:5px 10px;border-radius:8px;background:var(--b);border:1px solid var(--b);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s}
+.period-btn.active,.period-btn:hover{background:var(--s2);border-color:var(--gold);color:var(--gold)}
 </style>
 </head>
 <body>
@@ -222,6 +227,14 @@ main{padding:14px;max-width:800px;margin:0 auto}
       </div>
       <!-- Chart Tab -->
       <div id="dtab-chart">
+      <!-- Period selector -->
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="period-btn active" onclick="setPeriod('1mo',this)">1M</button>
+        <button class="period-btn" onclick="setPeriod('3mo',this)">3M</button>
+        <button class="period-btn" onclick="setPeriod('6mo',this)">6M</button>
+        <button class="period-btn" onclick="setPeriod('1y',this)">1J</button>
+        <button class="period-btn" onclick="resetZoom()" style="margin-left:auto;color:var(--gold)">⊙ Zoom reset</button>
+      </div>
         <div class="chart-container"><canvas id="price-chart" height="220"></canvas></div>
         <div id="chart-levels" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
         <div style="font-size:10px;color:var(--muted);margin-top:8px">
@@ -319,7 +332,7 @@ function fmt(n,d=2) { return n==null?'—':parseFloat(n).toFixed(d).replace(/\B(
 // ── Signals ───────────────────────────────────────────────────────────────────
 async function loadSignals() {
   try {
-    const res = await fetch(`${API}/api/signals`);
+    const res = await fetch(`${API}/api/signals`, {signal: AbortSignal.timeout(15000)});
     const d = await res.json();
     const status = d.status||'done';
     document.getElementById('s-analyzed').textContent = d.total_analyzed||'…';
@@ -334,14 +347,25 @@ async function loadSignals() {
         <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${p}%"></div></div>
         <div style="font-size:12px;color:var(--muted)">${p}% – automatische Aktualisierung</div>
       </div>`;
+      // Clear error message while loading
+      if (document.getElementById('signals-list').innerHTML.includes('Backend nicht erreichbar')) {
+        document.getElementById('signals-list').innerHTML='';
+      }
       if (!pollTimer) pollTimer=setInterval(loadSignals,12000);
     } else {
       pa.innerHTML='';
       if (pollTimer){clearInterval(pollTimer);pollTimer=null;}
+      renderSignals(d.top_signals||[]);
     }
-    renderSignals(d.top_signals||[]);
+    if (status==='done') renderSignals(d.top_signals||[]);
   } catch(e) {
-    document.getElementById('signals-list').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div>Backend nicht erreichbar</div>';
+    // Only show error if we have no signals yet
+    const hasSigs = document.getElementById('signals-list').innerHTML.includes('signal-card');
+    if (!hasSigs) {
+      document.getElementById('signals-list').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div style="font-size:14px;color:var(--text)">Server startet…</div><div style="font-size:12px;margin-top:6px">Bitte 30–60 Sekunden warten</div></div>';
+    }
+    // Retry after 15 seconds
+    if (!pollTimer) pollTimer=setInterval(loadSignals,15000);
   }
 }
 
@@ -427,11 +451,53 @@ function closeModal() {
   if (chartInst){chartInst.destroy();chartInst=null;}
 }
 
+let curChartData = [];
+
 function renderChart(d) {
-  const data = d.chart_data||[];
-  if (!data.length) return;
+  curChartData = d.chart_data||[];
+  document.querySelectorAll('.period-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent==='3M');
+  });
+  buildChart(curChartData, d);
+}
+
+function setPeriod(period, btn) {
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const days = period==='1mo'?30:period==='3mo'?90:period==='6mo'?180:365;
+  buildChart(curChartData.slice(-days), curSignal||{});
+}
+
+function resetZoom() {
+  if (chartInst) chartInst.resetZoom();
+}
+
+function buildChart(data, d) {
+  if (!data||!data.length) return;
   if (chartInst){chartInst.destroy();chartInst=null;}
   const ctx = document.getElementById('price-chart').getContext('2d');
+  const supp = (d.support_levels||[]);
+  const res = (d.resistance_levels||[]);
+
+  // Build annotation lines for support/resistance
+  const annotations = {};
+  supp.forEach((v,i) => {
+    annotations['s'+i] = {
+      type:'line', yMin:v, yMax:v,
+      borderColor:'rgba(34,197,94,.7)', borderWidth:1.5, borderDash:[5,4],
+      label:{content:'S'+(i+1)+': '+v, display:true, position:'end',
+             backgroundColor:'rgba(34,197,94,.15)', color:'#22c55e', font:{size:9}}
+    };
+  });
+  res.forEach((v,i) => {
+    annotations['r'+i] = {
+      type:'line', yMin:v, yMax:v,
+      borderColor:'rgba(239,68,68,.7)', borderWidth:1.5, borderDash:[5,4],
+      label:{content:'R'+(i+1)+': '+v, display:true, position:'end',
+             backgroundColor:'rgba(239,68,68,.15)', color:'#ef4444', font:{size:9}}
+    };
+  });
+
   chartInst = new Chart(ctx,{
     type:'line',
     data:{
@@ -445,8 +511,16 @@ function renderChart(d) {
         {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'rgba(239,68,68,.7)',borderWidth:1.5,pointRadius:0,fill:false},
       ]
     },
-    options:{responsive:true,maintainAspectRatio:true,
-      plugins:{legend:{display:false}},
+    options:{
+      responsive:true, maintainAspectRatio:true,
+      plugins:{
+        legend:{display:false},
+        zoom:{
+          zoom:{wheel:{enabled:true}, pinch:{enabled:true}, mode:'x'},
+          pan:{enabled:true, mode:'x'}
+        },
+        annotation:{annotations}
+      },
       scales:{
         x:{ticks:{color:'#555',maxTicksLimit:8,font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}},
         y:{ticks:{color:'#888',font:{size:10}},grid:{color:'rgba(255,255,255,.04)'}}
@@ -455,8 +529,8 @@ function renderChart(d) {
   });
 
   const levels = document.getElementById('chart-levels');
-  if (d.support_levels||d.resistance_levels)
-    levels.innerHTML=`<span style="color:var(--green)">▼ Support: ${(d.support_levels||[]).join(' / ')}</span>  <span style="color:var(--red)">▲ Resistance: ${(d.resistance_levels||[]).join(' / ')}</span>`;
+  if (supp.length||res.length)
+    levels.innerHTML=`<span style="color:var(--green)">▼ Support: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ Resistance: ${res.join(' / ')}</span>`;
 }
 
 function renderIndicators(d) {
@@ -501,8 +575,9 @@ function renderMF(products) {
   if (!products.length) { c.innerHTML='<div class="empty">Keine Produkte verfügbar</div>'; return; }
   c.innerHTML = products.map((p,i) => {
     const riskClass = p.risk_level==='Niedrig'?'risk-low':p.risk_level==='Mittel'?'risk-mid':'risk-high';
-    return `<div class="mf-card" id="mfc${i}" onclick="selectMF(${i},${JSON.stringify(p).replace(/'/g,"&#39;")})">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+    const pJson = JSON.stringify(p).replace(/'/g,"&#39;").replace(/"/g,"&quot;");
+    return `<div class="mf-card" id="mfc${i}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:22px;font-weight:800;color:var(--gold)">x${p.leverage}</div>
         <span class="${riskClass}" style="font-size:11px;font-weight:600">${p.risk_level} Risiko</span>
       </div>
@@ -514,22 +589,70 @@ function renderMF(products) {
         <div><div class="mf-label">Stop-Loss</div><div class="mf-val neg">${fmt(p.stop_loss_level)}</div></div>
         <div><div class="mf-label">Pot. Gewinn</div><div class="mf-val pos">${p.potential_gain_pct}%</div></div>
       </div>
+      <div id="mf-order-${i}" style="display:none;margin-top:12px;border-top:1px solid var(--b);padding-top:12px">
+        <div class="amount-row">
+          <span style="font-size:12px;color:var(--muted)">Betrag:</span>
+          <input type="number" id="mf-amt-${i}" class="amount-input" value="500" min="10" max="9990" step="50">
+          <span style="font-size:12px;color:var(--muted)">€</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">+ 10€ Ordergebühr</div>
+        <button class="btn btn-gold" onclick="placeMFOrderInline(${i})">⚡ Jetzt kaufen (x${p.leverage} ${p.direction==='BUY'?'Long':'Short'})</button>
+      </div>
+      <button class="btn btn-secondary" style="margin-top:10px;font-size:12px" onclick="toggleMFOrder(${i})">
+        🛒 Auswählen & kaufen
+      </button>
     </div>`;
   }).join('');
+  // Store products globally for order placement
+  window._mfProducts = products;
+}
+
+function toggleMFOrder(i) {
+  const box = document.getElementById('mf-order-'+i);
+  const isOpen = box.style.display !== 'none';
+  // Close all others
+  document.querySelectorAll('[id^="mf-order-"]').forEach(el => el.style.display='none');
+  document.querySelectorAll('.mf-card').forEach(c => c.classList.remove('sel'));
+  if (!isOpen) {
+    box.style.display = 'block';
+    document.getElementById('mfc'+i).classList.add('sel');
+    box.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+}
+
+async function placeMFOrderInline(i) {
+  const product = window._mfProducts[i];
+  const amount = parseFloat(document.getElementById('mf-amt-'+i).value)||500;
+  if (!product||!curSignal) return;
+  try {
+    const res = await fetch(`${API}/api/trade/open`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        ticker:curSignal.ticker,
+        name:curSignal.name+' x'+product.leverage,
+        direction:product.direction,
+        price:product.mini_future_price,
+        stop_loss:product.stop_loss_level,
+        take_profit:product.take_profit,
+        score:curSignal.score||50,
+        signals:['Mini-Future x'+product.leverage],
+        leverage:product.leverage,
+        invest_amount:amount,
+        is_mini_future:true,
+        mini_future_leverage:product.leverage
+      })
+    });
+    const d = await res.json();
+    if (res.ok) {
+      toast(`✅ Mini-Future x${product.leverage} ins Depot gebucht! (−10€ Gebühr)`,'ok');
+      document.getElementById('mf-order-'+i).style.display='none';
+      document.getElementById('mfc'+i).classList.remove('sel');
+    } else toast(`❌ ${d.detail}`,'err');
+  } catch(e){toast('Fehler beim Buchen','err');}
 }
 
 function selectMF(i, product) {
-  document.querySelectorAll('.mf-card').forEach(c => c.classList.remove('sel'));
-  document.getElementById('mfc'+i).classList.add('sel');
-  selMF = product;
-  const box = document.getElementById('mf-order-box');
-  box.style.display='block';
-  document.getElementById('mf-sel-info').innerHTML=`
-    <b>Hebel x${product.leverage} ${product.direction==='BUY'?'Long':'Short'}</b><br>
-    Knock-Out: ${fmt(product.knock_out)} · MF-Preis: ${fmt(product.mini_future_price)}<br>
-    Stop-Loss: ${fmt(product.stop_loss_level)} · Take Profit: ${fmt(product.take_profit)}<br>
-    Max. Verlust: <span class="neg">${product.max_loss_pct}%</span> · Pot. Gewinn: <span class="pos">${product.potential_gain_pct}%</span>`;
-  box.scrollIntoView({behavior:'smooth'});
+  toggleMFOrder(i);
 }
 
 async function placeMFOrder() {
