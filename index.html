@@ -192,14 +192,14 @@ main{padding:14px;max-width:800px;margin:0 auto}
       <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px">
         <div style="display:flex;justify-content:space-between;width:100%">
           <div><div class="setting-label">Min. Signalstärke</div><div class="setting-sub">Filtert schwache Signale</div></div>
-          <span class="gold" style="font-family:monospace;font-weight:700" id="str-display">30</span>
+          <span class="gold" style="font-family:monospace;font-weight:700" id="str-display">20</span>
         </div>
-        <input type="range" id="str-slider" min="20" max="80" value="30" step="5"
+        <input type="range" id="str-slider" min="10" max="80" value="20" step="5"
           style="width:100%;accent-color:#f0b429"
           oninput="document.getElementById('str-display').textContent=this.value"
           onchange="saveStrength(this.value)">
         <div style="display:flex;justify-content:space-between;width:100%;font-size:10px;color:var(--muted)">
-          <span>20 Viele</span><span>50 Mittel</span><span>80 Wenige</span>
+          <span>10 Max</span><span>50 Mittel</span><span>80 Wenige</span>
         </div>
       </div>
       <div class="setting-row">
@@ -744,7 +744,7 @@ function renderPositions(positions) {
   c.innerHTML=positions.map(p=>{
     const pnl=p.unrealized_pnl||0;
     const lev=p.leverage>1?` · x${p.leverage} Hebel`:'';
-    return `<div class="pos-card">
+    return `<div class="pos-card" data-trade-id="${p.id}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div>
           <div style="font-size:14px;font-weight:700">${p.name}</div>
@@ -816,6 +816,42 @@ async function loadStrength() {
   } catch(e){}
 }
 
+// ── Live Price Updates ───────────────────────────────────────────────────────
+async function updatePortfolioPrices() {
+  try {
+    const portRes = await fetch(`${API}/api/portfolio`);
+    const pd = await portRes.json();
+    const positions = pd.portfolio?.positions || [];
+    if (!positions.length) return;
+
+    // Fetch current price for each open position
+    for (const pos of positions) {
+      try {
+        const res = await fetch(`${API}/api/price/${encodeURIComponent(pos.ticker)}`);
+        const d = await res.json();
+        if (d.price) {
+          // Update position with current price via close/reopen would be complex
+          // Instead just show updated price in UI
+          const posEl = document.querySelector(`[data-trade-id="${pos.id}"]`);
+          if (posEl) {
+            const pnl = pos.direction === 'BUY'
+              ? (d.price - pos.entry_price) * pos.units * (pos.leverage||1)
+              : (pos.entry_price - d.price) * pos.units * (pos.leverage||1);
+            const pnlPct = (pnl / pos.cost * 100).toFixed(2);
+            const pnlEl = posEl.querySelector('.pos-pnl');
+            if (pnlEl) {
+              pnlEl.textContent = (pnl>=0?'+':'')+fmt(pnl)+'€';
+              pnlEl.style.color = pnl>=0?'var(--green)':'var(--red)';
+            }
+          }
+        }
+      } catch(e) {}
+    }
+    // Full reload for accurate totals
+    loadPortfolio();
+  } catch(e) {}
+}
+
 // ── Portfolio Backup/Restore (survives server restarts) ───────────────────────
 async function backupPortfolio() {
   try {
@@ -856,11 +892,41 @@ async function restorePortfolioIfNeeded() {
   } catch(e) {}
 }
 
-// Auto-backup every 2 minutes when app is active
+// Auto-backup every 2 minutes
 setInterval(backupPortfolio, 120000);
-// Also backup when page becomes visible again (switching back to browser)
+
+// Auto-refresh analysis every 10 minutes
+setInterval(() => {
+  if (!document.hidden) {
+    loadSignals();
+    // Also refresh portfolio prices if on portfolio tab
+    if (document.getElementById('page-portfolio').classList.contains('active')) {
+      loadPortfolio();
+    }
+  }
+}, 10 * 60 * 1000);
+
+// Auto-refresh portfolio prices every 10 minutes if on portfolio tab
+setInterval(() => {
+  if (!document.hidden && document.getElementById('page-portfolio').classList.contains('active')) {
+    updatePortfolioPrices();
+  }
+}, 10 * 60 * 1000);
+
+// Also backup when page becomes visible again
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) backupPortfolio();
+  if (!document.hidden) {
+    backupPortfolio();
+    // Refresh if tab was hidden for more than 10 minutes
+    const lastLoad = parseInt(localStorage.getItem('tb_last_load')||'0');
+    if (Date.now() - lastLoad > 10 * 60 * 1000) {
+      loadSignals();
+      if (document.getElementById('page-portfolio').classList.contains('active')) {
+        updatePortfolioPrices();
+      }
+    }
+    localStorage.setItem('tb_last_load', Date.now().toString());
+  }
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -868,7 +934,7 @@ loadSignals();
 loadStrength();
 // Restore portfolio on startup if server was restarted
 setTimeout(restorePortfolioIfNeeded, 3000);
-setInterval(()=>{if(document.getElementById('page-signals').classList.contains('active'))loadSignals();},300000);
+// Signals auto-refresh every 10 minutes (handled by visibility change + interval above)
 </script>
 </body>
 </html>

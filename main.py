@@ -106,7 +106,7 @@ _state = {"status": "idle", "progress": 0, "results": [], "timestamp": None}
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE) as f: return json.load(f)
-    return {"min_strength": 30}
+    return {"min_strength": 20}
 
 def save_settings(s):
     with open(SETTINGS_FILE, "w") as f: json.dump(s, f)
@@ -596,7 +596,7 @@ class SettingsRequest(BaseModel):
 
 @app.post("/api/settings")
 def update_settings(req: SettingsRequest):
-    if not 20 <= req.min_strength <= 100:
+    if not 10 <= req.min_strength <= 100:
         raise HTTPException(400, "Stärke zwischen 20 und 100")
     s = load_settings(); s["min_strength"] = req.min_strength; save_settings(s)
     global _state
@@ -737,4 +737,4 @@ def manifest():
     if mf_path.exists(): return JSONResponse(json.loads(mf_path.read_text()))
     return JSONResponse({})
 
-Thread(target=run_analysis, args=(30,), daemon=True).start()
+Thread(target=run_analysis, args=(20,), daemon=True).start()
