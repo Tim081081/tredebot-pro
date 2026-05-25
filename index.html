@@ -6,10 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>TradeBot Pro</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -122,8 +119,8 @@ input[type=range]{width:100%;accent-color:var(--blue)}
   .modal-hdr{flex-shrink:0}
   #dtab-chart{flex:1;display:flex;flex-direction:column;overflow:hidden}
   .period-row{flex-shrink:0;padding:6px 10px 4px}
-  .chart-box{flex:1;margin:0 8px 0;padding:6px}
-  .chart-box canvas{width:100%!important;height:100%!important;max-height:none!important}
+  .chart-box{flex:1;margin:0 8px;padding:6px}
+  #price-chart{width:100%!important}
   .chart-legend{flex-shrink:0;padding:4px 10px 6px}
   #chart-levels{flex-shrink:0;padding:0 10px 4px}
   header,nav,.modal-body>.dtabs{display:none}
@@ -274,7 +271,7 @@ input[type=range]{width:100%;accent-color:var(--blue)}
           <button class="pbtn" onclick="setPeriod('5y',this)">5J</button>
           <button class="pbtn" onclick="resetZoom()" title="Zoom reset">⊙</button>
         </div>
-        <div class="chart-box"><canvas id="price-chart" height="240" style="width:100%"></canvas></div>
+        <div class="chart-box"><div id="price-chart" style="width:100%;height:280px"></div></div>
         <div id="chart-levels" style="font-size:11px;color:var(--t3);padding:0 2px"></div>
         <div class="cleg">
           <div class="li"><div class="ll" style="background:#0f172a"></div><span>Kurs</span></div>
@@ -550,7 +547,16 @@ async function openDetail(sig,goMF=false){
     renderChart(d);renderIndicators(d);
   }catch(e){renderChart(sig);}
 }
-function closeModal(){document.getElementById('detail-modal').classList.remove('open');if(chartInst){chartInst.destroy();chartInst=null;}}
+function closeModal(){
+  document.getElementById('detail-modal').classList.remove('open');
+  if(chartInst){
+    // ResizeObserver aufräumen
+    const container=document.getElementById('price-chart');
+    if(container._resizeObs){ container._resizeObs.disconnect(); container._resizeObs=null; }
+    try{ chartInst.remove(); }catch(e){}
+    chartInst=null;
+  }
+}
 
 let curCd=[];
 function renderChart(d){curCd=d.chart_data||[];document.querySelectorAll('.pbtn').forEach(b=>b.classList.toggle('active',b.textContent==='3M'));buildChart(curCd,d);}
@@ -570,30 +576,135 @@ function resetZoom(){if(chartInst)chartInst.resetZoom();}
 
 function buildChart(data,d){
   if(!data?.length)return;
-  if(chartInst){chartInst.destroy();chartInst=null;}
-  const ctx=document.getElementById('price-chart').getContext('2d');
-  const supp=d.support_levels||[],res=d.resistance_levels||[];
-  const ann={};
-  supp.forEach((v,i)=>{ann['s'+i]={type:'line',yMin:v,yMax:v,borderColor:'rgba(22,163,74,.7)',borderWidth:1.5,borderDash:[6,4],label:{content:'S'+(i+1)+' '+v,display:true,position:'start',backgroundColor:'rgba(255,255,255,.95)',color:'#16a34a',font:{size:11,weight:'700'},padding:{x:5,y:3}}};});
-  res.forEach((v,i)=>{ann['r'+i]={type:'line',yMin:v,yMax:v,borderColor:'rgba(220,38,38,.7)',borderWidth:1.5,borderDash:[6,4],label:{content:'R'+(i+1)+' '+v,display:true,position:'start',backgroundColor:'rgba(255,255,255,.95)',color:'#dc2626',font:{size:11,weight:'700'},padding:{x:5,y:3}}};});
+  // Altes Chart zerstören
+  if(chartInst){
+    try{ chartInst.remove(); }catch(e){}
+    chartInst=null;
+  }
+  const container=document.getElementById('price-chart');
+  container.innerHTML='';
+
+  // Landscape: volle Höhe nutzen
+  const isLandscape=window.innerWidth>window.innerHeight;
+  const chartHeight=isLandscape
+    ? Math.max(200, window.innerHeight-120)
+    : 280;
+
+  const chart=LightweightCharts.createChart(container,{
+    width: container.clientWidth||350,
+    height: chartHeight,
+    layout:{background:{color:'#ffffff'},textColor:'#475569'},
+    grid:{vertLines:{color:'rgba(0,0,0,.05)'},horzLines:{color:'rgba(0,0,0,.05)'}},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+    rightPriceScale:{borderColor:'rgba(0,0,0,.1)'},
+    timeScale:{borderColor:'rgba(0,0,0,.1)',timeVisible:true,secondsVisible:false},
+    handleScroll:{mouseWheel:true,pressedMouseMove:true},
+    handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
+  });
+  chartInst=chart;
+
+  // Resize bei Orientierungswechsel
+  const resizeObs=new ResizeObserver(()=>{
+    const w=container.clientWidth;
+    const h=window.innerWidth>window.innerHeight?Math.max(200,window.innerHeight-120):280;
+    if(w>0) chart.resize(w,h);
+  });
+  resizeObs.observe(container);
+  container._resizeObs=resizeObs;
+
+  // Candlestick-Daten vorbereiten
+  const candleData=data
+    .filter(x=>x.open&&x.high&&x.low&&x.close)
+    .map(x=>({
+      time:x.date,
+      open:x.open, high:x.high, low:x.low, close:x.close
+    }));
+
+  // Candlestick-Serie
+  const candleSeries=chart.addCandlestickSeries({
+    upColor:'#16a34a', downColor:'#dc2626',
+    borderUpColor:'#16a34a', borderDownColor:'#dc2626',
+    wickUpColor:'#16a34a', wickDownColor:'#dc2626',
+  });
+  candleSeries.setData(candleData);
+
+  // Bollinger Band – oberes und unteres als Fläche
+  const bbUpperSeries=chart.addLineSeries({
+    color:'rgba(100,130,220,.4)', lineWidth:1, lineStyle:2,
+    priceLineVisible:false, lastValueVisible:false,
+  });
+  const bbLowerSeries=chart.addLineSeries({
+    color:'rgba(100,130,220,.4)', lineWidth:1, lineStyle:2,
+    priceLineVisible:false, lastValueVisible:false,
+  });
+  const bbMidSeries=chart.addLineSeries({
+    color:'rgba(100,100,200,.3)', lineWidth:1, lineStyle:3,
+    priceLineVisible:false, lastValueVisible:false,
+  });
+  const bbUData=data.filter(x=>x.bb_upper).map(x=>({time:x.date,value:x.bb_upper}));
+  const bbLData=data.filter(x=>x.bb_lower).map(x=>({time:x.date,value:x.bb_lower}));
+  const bbMData=data.filter(x=>x.bb_mid).map(x=>({time:x.date,value:x.bb_mid}));
+  if(bbUData.length){bbUpperSeries.setData(bbUData);bbLowerSeries.setData(bbLData);bbMidSeries.setData(bbMData);}
+
+  // EMA 20 (grün)
+  const ema20Series=chart.addLineSeries({
+    color:'#16a34a', lineWidth:1.5,
+    priceLineVisible:false, lastValueVisible:false,
+  });
+  const ema20Data=data.filter(x=>x.ema20).map(x=>({time:x.date,value:x.ema20}));
+  if(ema20Data.length) ema20Series.setData(ema20Data);
+
+  // EMA 50 (rot)
+  const ema50Series=chart.addLineSeries({
+    color:'#dc2626', lineWidth:1.5,
+    priceLineVisible:false, lastValueVisible:false,
+  });
+  const ema50Data=data.filter(x=>x.ema50).map(x=>({time:x.date,value:x.ema50}));
+  if(ema50Data.length) ema50Series.setData(ema50Data);
+
+  // EMA 200 (lila, gestrichelt)
   const has200=data.some(x=>x.ema200);
-  const ds=[
-    {label:'BB U',data:data.map(x=>x.bb_upper),borderColor:'rgba(100,100,200,.2)',borderWidth:0,pointRadius:0,fill:'+2',backgroundColor:'rgba(100,130,220,.1)',tension:.3},
-    {label:'BB M',data:data.map(x=>x.bb_mid),borderColor:'rgba(100,100,200,.4)',borderWidth:1,pointRadius:0,fill:false,borderDash:[3,3],tension:.3},
-    {label:'BB L',data:data.map(x=>x.bb_lower),borderColor:'rgba(100,100,200,.2)',borderWidth:0,pointRadius:0,fill:false,tension:.3},
-    {label:'Kurs',data:data.map(x=>x.close),borderColor:'#0f172a',borderWidth:2,pointRadius:0,fill:false,tension:.1,order:0},
-    {label:'EMA 20',data:data.map(x=>x.ema20),borderColor:'#16a34a',borderWidth:1.5,pointRadius:0,fill:false},
-    {label:'EMA 50',data:data.map(x=>x.ema50),borderColor:'#dc2626',borderWidth:1.5,pointRadius:0,fill:false},
-  ];
-  if(has200)ds.push({label:'EMA 200',data:data.map(x=>x.ema200||null),borderColor:'#7c3aed',borderWidth:2,pointRadius:0,fill:false,borderDash:[8,3]});
-  chartInst=new Chart(ctx,{type:'line',data:{labels:data.map(x=>x.date.slice(5)),datasets:ds},
-    options:{responsive:true,maintainAspectRatio:true,
-      plugins:{legend:{display:false},zoom:{zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},pan:{enabled:true,mode:'x'}},annotation:{annotations:ann}},
-      scales:{x:{ticks:{color:'#64748b',maxTicksLimit:8,font:{size:10}},grid:{color:'rgba(0,0,0,.05)'}},
-              y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(0,0,0,.05)'}}}}});
+  if(has200){
+    const ema200Series=chart.addLineSeries({
+      color:'#7c3aed', lineWidth:2, lineStyle:2,
+      priceLineVisible:false, lastValueVisible:false,
+    });
+    const ema200Data=data.filter(x=>x.ema200).map(x=>({time:x.date,value:x.ema200}));
+    ema200Series.setData(ema200Data);
+  }
+
+  // Support/Widerstand-Linien
+  const supp=d.support_levels||[], res=d.resistance_levels||[];
+  supp.forEach((v,i)=>{
+    candleSeries.createPriceLine({
+      price:v, color:'rgba(22,163,74,.8)', lineWidth:1.5,
+      lineStyle:LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible:true,
+      title:'S'+(i+1)+' '+v,
+    });
+  });
+  res.forEach((v,i)=>{
+    candleSeries.createPriceLine({
+      price:v, color:'rgba(220,38,38,.8)', lineWidth:1.5,
+      lineStyle:LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible:true,
+      title:'R'+(i+1)+' '+v,
+    });
+  });
+
+  chart.timeScale().fitContent();
+
+  // Levels-Anzeige unter Chart
   const lvEl=document.getElementById('chart-levels');
-  if(supp.length||res.length)lvEl.innerHTML=`<span style="color:var(--green)">▼ S: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ R: ${res.join(' / ')}</span>`;
+  if(supp.length||res.length)
+    lvEl.innerHTML=`<span style="color:var(--green)">▼ S: ${supp.join(' / ')}</span>&nbsp;&nbsp;<span style="color:var(--red)">▲ R: ${res.join(' / ')}</span>`;
+
   document.getElementById('e200-leg').style.display=has200?'flex':'none';
+}
+
+// Zoom-Reset für Lightweight Charts
+function resetZoom(){
+  if(chartInst) chartInst.timeScale().fitContent();
 }
 
 // ── Ausführliche Indikator-Definitionen (anfängerfreundlich) ──────────────────
@@ -1452,46 +1563,58 @@ async function loadWl(force=false){
     _wlData=[]; _wlRegion=curRegion;
   }
   c.innerHTML='<div class="empty"><div class="ei">⏳</div>Lade Werte…</div>';
-  try{
-    const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,{signal:AbortSignal.timeout(15000)});
-    const d=await r.json();
-    _wlData=d.items||[];
-    document.getElementById('wl-region-label').textContent=curRegion;
 
-    let statusHint='';
-    if(d.status==='running'){
-      // Analyse läuft noch → alle paar Sekunden neu laden
-      statusHint=`<div style="background:var(--bl);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--blue)">
-        ⏳ Analyse läuft… ${d.analyzed_count||0} von ${d.total||0} Werten fertig. Liste aktualisiert sich automatisch.
-      </div>`;
-      // Auto-Refresh bis Analyse fertig
-      if(!window._wlPollTimer){
-        window._wlPollTimer=setInterval(async()=>{
-          const check=await fetch(`${API}/api/signals?region=${curRegion}`).then(r=>r.json()).catch(()=>({status:'idle'}));
-          if(check.status==='done'){
-            clearInterval(window._wlPollTimer); window._wlPollTimer=null;
-            _wlData=[]; _wlRegion='';
-            loadWl(true);
-          }
-        },5000);
+  // Bis zu 3 Versuche mit je 45s Timeout
+  let lastErr=null;
+  for(let attempt=1; attempt<=3; attempt++){
+    try{
+      if(attempt>1){
+        c.innerHTML=`<div class="empty"><div class="ei">⏳</div>Verbindung… Versuch ${attempt}/3<br><small style="color:var(--t3)">Server wacht auf, bitte warten</small></div>`;
+        await new Promise(r=>setTimeout(r,5000));
       }
-    } else if(d.status==='idle'&&!d.is_complete){
-      statusHint=`<div style="background:var(--s2);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--t3)">
-        ℹ️ Noch keine Analyse für ${curRegion} gestartet. Im Tab „Signale" → „Analyse starten" drücken für vollständige Daten.
-      </div>`;
-    } else if(d.is_complete){
-      // Stop eventuellen Poll
-      if(window._wlPollTimer){clearInterval(window._wlPollTimer);window._wlPollTimer=null;}
-    }
+      const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,{signal:AbortSignal.timeout(45000)});
+      const d=await r.json();
+      _wlData=d.items||[];
+      document.getElementById('wl-region-label').textContent=curRegion;
 
-    if(!_wlData.length){
-      c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Daten – bitte Analyse starten</div>';
-      return;
+      let statusHint='';
+      if(d.status==='running'){
+        statusHint=`<div style="background:var(--bl);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--blue)">
+          ⏳ Analyse läuft… ${d.analyzed_count||0} von ${d.total||0} Werten fertig. Liste aktualisiert sich automatisch.
+        </div>`;
+        if(!window._wlPollTimer){
+          window._wlPollTimer=setInterval(async()=>{
+            const check=await fetch(`${API}/api/signals?region=${curRegion}`).then(r=>r.json()).catch(()=>({status:'idle'}));
+            if(check.status==='done'){
+              clearInterval(window._wlPollTimer); window._wlPollTimer=null;
+              _wlData=[]; _wlRegion='';
+              loadWl(true);
+            }
+          },5000);
+        }
+      } else if(d.status==='idle'&&!d.is_complete){
+        statusHint=`<div style="background:var(--s2);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--t3)">
+          ℹ️ Noch keine Analyse für ${curRegion} gestartet. Im Tab „Signale" → „Analyse starten" drücken.
+        </div>`;
+      } else if(d.is_complete){
+        if(window._wlPollTimer){clearInterval(window._wlPollTimer);window._wlPollTimer=null;}
+      }
+
+      if(!_wlData.length){
+        c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Daten – bitte Analyse starten</div>';
+        return;
+      }
+      renderWl(statusHint);
+      return; // Erfolg – Schleife beenden
+    }catch(e){
+      lastErr=e;
     }
-    renderWl(statusHint);
-  }catch(e){
-    c.innerHTML='<div class="empty"><div class="ei">⚠️</div>Verbindungsfehler</div>';
   }
+  // Alle 3 Versuche gescheitert
+  c.innerHTML=`<div class="empty"><div class="ei">⚠️</div>
+    Verbindungsfehler nach 3 Versuchen.<br>
+    <button onclick="loadWl(true)" class="btn-sm btn-blue" style="margin-top:12px">🔄 Erneut versuchen</button>
+  </div>`;
 }
 function filterWl(f,btn){
   _wlFilter=f;
@@ -1518,10 +1641,19 @@ function renderWl(statusHint=''){
   const neutral = items.filter(x=>!x.pending && x.direction==='NEUTRAL');
   const pending = items.filter(x=>x.pending);
 
-  const renderItem=(s,i,allItems)=>{
-    const idx=allItems.indexOf(s);
+  const renderItem=(s,idx)=>{
+    // Kein Ticker-Daten verfügbar (delisted etc.)
+    if(s.no_data && !s.pending) return `<div class="wl-row neutral" style="opacity:.35">
+      <div style="flex:1;min-width:0"><div class="wn" style="text-decoration:line-through">${s.name}</div>
+        <div class="wt">${s.ticker} · keine Daten verfügbar</div></div>
+      <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
+      <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊗ N/A</span>
+    </div>`;
+
+    // Noch nicht analysiert (Analyse läuft)
     if(s.pending) return `<div class="wl-row neutral" style="opacity:.4">
-      <div style="flex:1;min-width:0"><div class="wn">${s.name}</div><div class="wt">${s.ticker} · noch nicht analysiert</div></div>
+      <div style="flex:1;min-width:0"><div class="wn">${s.name}</div>
+        <div class="wt">${s.ticker} · noch nicht analysiert</div></div>
       <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
       <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊙ OFFEN</span>
     </div>`;
@@ -1553,7 +1685,7 @@ function renderWl(statusHint=''){
     </div>`;
   };
 
-  window._wlI=items; // globales Array für onclick
+  window._wlI=items;
   let html=statusHint;
 
   // Starke Signale zuerst (über Mindest-Signalstärke)
@@ -1561,7 +1693,7 @@ function renderWl(statusHint=''){
     html+=`<div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px">
       ✅ Starke Signale – über Signalstärke-Schwelle (${strong.length})
     </div>`;
-    html+=strong.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+    html+=strong.map((s,i)=>renderItem(s,items.indexOf(s))).join('');
   }
 
   // Schwache Signale mit Trennlinie
@@ -1569,20 +1701,36 @@ function renderWl(statusHint=''){
     html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid var(--b);padding-top:10px">
       Schwache Signale – unter Signalstärke-Schwelle (${weak.length})
     </div>`;
-    html+=weak.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+    html+=weak.map((s)=>renderItem(s,items.indexOf(s))).join('');
   }
 
-  // Neutrals (kein Signal)
-  if(neutral.length && _wlFilter==='NEUTRAL'){
-    html+=neutral.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+  // Neutrals (kein Signal oder kein Ergebnis)
+  if(_wlFilter==='NEUTRAL'||_wlFilter==='all'){
+    const noData=items.filter(x=>x.no_data&&!x.pending);
+    const neutralOnly=items.filter(x=>!x.pending&&!x.no_data&&(x.direction==='NEUTRAL'||x.no_signal)&&!x.below_threshold);
+
+    if(neutralOnly.length){
+      if(_wlFilter==='all')
+        html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid var(--b);padding-top:10px">
+          Kein klares Signal (${neutralOnly.length})
+        </div>`;
+      html+=neutralOnly.map((s)=>renderItem(s,items.indexOf(s))).join('');
+    }
+    if(noData.length){
+      html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;border-top:1px solid var(--b);padding-top:8px">
+        Keine Daten verfügbar (${noData.length})
+      </div>`;
+      html+=noData.map((s)=>renderItem(s,items.indexOf(s))).join('');
+    }
   }
 
-  // Noch nicht analysiert
-  if(pending.length){
+  // Noch nicht analysiert (Analyse läuft noch)
+  const pendingItems=items.filter(x=>x.pending);
+  if(pendingItems.length){
     html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px;border-top:1px solid var(--b);padding-top:10px">
-      Noch nicht analysiert (${pending.length})
+      Noch nicht analysiert (${pendingItems.length})
     </div>`;
-    html+=pending.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+    html+=pendingItems.map((s)=>renderItem(s,items.indexOf(s))).join('');
   }
 
   c.innerHTML=html;
