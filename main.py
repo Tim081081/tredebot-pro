@@ -505,21 +505,37 @@ def run_analysis(region: str, min_strength: int) -> None:
         if _state[region].get("status")=="running": return
         _state[region].update({"status":"running","progress":0,"results":[]})
     cfg=load_settings()
-    items=list(REGIONS[region].items()); total=len(items); results=[]
+    items=list(REGIONS[region].items()); total=len(items)
+    strong_results=[]   # Über Schwelle → Signale-Tab
+    all_results=[]      # Alle mit Signal (inkl. schwache) → Watchlist
+
     for i,(name,ticker) in enumerate(items):
-        sig=quick_score(ticker,name,min_strength,cfg,include_weak=False)
-        if sig: results.append(sig)
+        # Immer mit include_weak=True scannen, dann filtern
+        sig=quick_score(ticker,name,min_strength,cfg,include_weak=True)
+        if sig:
+            all_results.append(sig)
+            if not sig.get("below_threshold",False):
+                strong_results.append(sig)
+
         if i%5==4 or i==total-1:
-            rs=sorted(results,key=lambda x:x["strength"],reverse=True)
+            rs=sorted(strong_results,key=lambda x:x["strength"],reverse=True)
             with _lock:
                 _state[region]["progress"]=round((i+1)/total*100)
                 _state[region]["results"]=rs[:15]
             time.sleep(.3); gc.collect()
-    rs=sorted(results,key=lambda x:x["strength"],reverse=True)
+
+    rs_strong=sorted(strong_results,key=lambda x:x["strength"],reverse=True)
+    rs_all=sorted(all_results,key=lambda x:x["strength"],reverse=True)
+
     with _lock:
-        _state[region].update({"status":"done","progress":100,"results":rs[:15],
-            "all_results":rs,"signals_found":len(results),
-            "total_analyzed":total,"timestamp":datetime.now().isoformat()})
+        _state[region].update({
+            "status":"done","progress":100,
+            "results":rs_strong[:15],        # Signale-Tab: nur starke
+            "all_results":rs_all,            # Watchlist: alle mit Signal
+            "signals_found":len(strong_results),
+            "total_analyzed":total,
+            "timestamp":datetime.now().isoformat()
+        })
     gc.collect()
 
 # ── Mini-Futures ──────────────────────────────────────────────────────────────
@@ -652,23 +668,23 @@ def get_watchlist(region: str = "DE"):
     all_results=st.get("all_results",[])
     analyzed={r["ticker"] for r in all_results}
 
-    # Für noch nicht analysierte Werte: schwache Signale berechnen
-    extra=[]
-    for n,t in REGIONS[region].items():
-        if t not in analyzed:
-            sig=quick_score(t,n,ms,cfg,include_weak=True)
-            if sig:
-                extra.append(sig)
-            else:
-                extra.append({"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
-                    "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
-                    "rsi":None,"timestamp":None,"below_threshold":True})
+    # Noch nicht analysierte Werte: nur Platzhalter, KEIN on-the-fly quick_score
+    # (würde den Request für mehrere Minuten blockieren)
+    placeholders=[
+        {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+         "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+         "rsi":None,"timestamp":None,"below_threshold":False,"pending":True}
+        for n,t in REGIONS[region].items() if t not in analyzed
+    ]
 
-    # Alle Ergebnisse zusammenführen
-    combined=all_results+extra
-    items=sorted(combined,key=lambda x:x.get("strength",0),reverse=True)
-    return {"status":st["status"],"items":items,"total":len(items),"region":region,
-            "min_strength":ms}
+    # Alle Ergebnisse zusammenführen: analysierte zuerst (nach Stärke), dann Platzhalter
+    analyzed_sorted = sorted(all_results, key=lambda x: x.get("strength",0), reverse=True)
+    items = analyzed_sorted + placeholders
+
+    return {"status":st["status"],"items":items,"total":len(items),
+            "region":region,"min_strength":ms,
+            "analyzed_count":len(analyzed_sorted),
+            "pending_count":len(placeholders)}
 
 @app.get("/api/portfolio/backup")
 def backup_ep(): return load_portfolio()

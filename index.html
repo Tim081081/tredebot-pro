@@ -361,14 +361,15 @@ function setRegion(r,btn){
   btn.classList.add('active');
   document.getElementById('region-info').textContent=REGION_LABELS[r]||r;
   document.getElementById('wl-region-label').textContent=r;
-  // Watchlist automatisch auf neue Region umschalten
-  _wlData=[]; // Cache leeren
+  // Watchlist-Cache leeren → nächster loadWl-Aufruf lädt frisch
+  _wlData=[]; _wlRegion='';
+  // Wenn Watchlist-Tab gerade aktiv: sofort neu laden
   if(document.getElementById('page-watchlist').classList.contains('active'))
-    loadWl(false);
-  // Signale-Tab: vorherige Ergebnisse leeren, NUR Status laden (kein Auto-Start)
+    loadWl(true);
+  // Signale-Tab: Status laden, kein Auto-Start
   document.getElementById('signals-list').innerHTML='';
   document.getElementById('progress-area').innerHTML='';
-  loadSignals(); // zeigt nur Status / vorherige Ergebnisse
+  loadSignals();
 }
 document.getElementById('region-info').textContent=REGION_LABELS['DE'];
 
@@ -1203,34 +1204,75 @@ async function resetPortfolio(){
 }
 
 // ── Watchlist ─────────────────────────────────────────────────────────────────
-let _wlData=[],_wlFilter='all';
+let _wlData=[],_wlFilter='all',_wlRegion='';
+
 async function loadWl(force=false){
   const c=document.getElementById('wl-container');
-  if(!_wlData.length||force){
-    c.innerHTML='<div class="empty"><div class="ei">⏳</div>Analyse läuft…</div>';
-    try{
-      const r=await fetch(`${API}/api/watchlist?region=${curRegion}`);
-      const d=await r.json();_wlData=d.items||[];
-    }catch(e){c.innerHTML='<div class="empty"><div class="ei">⚠️</div>Fehler</div>';return;}
+  // Cache nur leeren wenn Region gewechselt oder force
+  if(force||_wlRegion!==curRegion){
+    _wlData=[];
+    _wlRegion=curRegion;
   }
+  // Immer frisch laden (auch wenn _wlData befüllt, da Analyse sich ändern kann)
+  c.innerHTML='<div class="empty"><div class="ei">⏳</div>Lade Werte…</div>';
+  try{
+    const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,
+                        {signal:AbortSignal.timeout(15000)});
+    const d=await r.json();
+    _wlData=d.items||[];
+    document.getElementById('wl-region-label').textContent=curRegion;
+
+    // Hinweis wenn noch Analyse läuft oder Daten noch ausstehen
+    const pendingCount=d.pending_count||0;
+    const statusHint=d.status==='running'
+      ? `<div style="background:var(--bl);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--blue)">⏳ Analyse läuft – ${d.analyzed_count||0} von ${d.total||0} Werten analysiert. Bitte warten oder neu laden.</div>`
+      : (d.status==='idle'&&pendingCount>0
+          ? `<div style="background:var(--s2);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--t3)">ℹ️ ${d.analyzed_count||0} Werte analysiert. Für vollständige Daten Analyse im Signale-Tab starten.</div>`
+          : '');
+
+    if(!_wlData.length){
+      c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Daten – bitte Analyse starten</div>';
+      return;
+    }
+    renderWl(statusHint);
+  }catch(e){
+    c.innerHTML='<div class="empty"><div class="ei">⚠️</div>Verbindungsfehler – bitte erneut versuchen</div>';
+  }
+}
+function filterWl(f,btn){
+  _wlFilter=f;
+  document.querySelectorAll('.wf').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
   renderWl();
 }
-function filterWl(f,btn){_wlFilter=f;document.querySelectorAll('.wf').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderWl();}
-function renderWl(){
+
+function renderWl(statusHint=''){
   const c=document.getElementById('wl-container');
   let items=_wlData;
-  // NEUTRAL: nur echte Neutrals (kein Signal, direction='NEUTRAL')
-  if(_wlFilter==='BUY')   items=items.filter(x=>x.direction==='BUY');
+  if(_wlFilter==='BUY')        items=items.filter(x=>x.direction==='BUY');
   else if(_wlFilter==='SELL')  items=items.filter(x=>x.direction==='SELL');
   else if(_wlFilter==='NEUTRAL') items=items.filter(x=>x.direction==='NEUTRAL'||!x.direction);
-  if(!items.length){c.innerHTML='<div class="empty"><div class="ei">🔍</div>Keine Einträge</div>';return;}
+  if(!items.length){
+    c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Einträge für diesen Filter</div>';
+    return;
+  }
   window._wlI=items;
-  c.innerHTML=items.map((s,i)=>{
-    const dir=s.direction||'NEUTRAL';
-    const isBelow=s.below_threshold&&dir!=='NEUTRAL'; // Schwaches Signal unter Mindestschwelle
-    const rc=dir==='BUY'?'buy':dir==='SELL'?'sell':'neutral';
+  c.innerHTML=statusHint+items.map((s,i)=>{
+    // Platzhalter: noch nicht analysiert
+    if(s.pending){
+      return `<div class="wl-row neutral" style="opacity:.45">
+        <div style="flex:1;min-width:0">
+          <div class="wn">${s.name}</div>
+          <div class="wt">${s.ticker} · noch nicht analysiert</div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
+        <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊙ OFFEN</span>
+      </div>`;
+    }
 
-    // Schwache Signale: gedimmter Badge mit anderem Style
+    const dir=s.direction||'NEUTRAL';
+    const isBelow=s.below_threshold&&dir!=='NEUTRAL';
+    const rc=dir==='BUY'?'buy':dir==='SELL'?'sell':'neutral';
     let bs, bt;
     if(dir==='BUY'){
       bs=isBelow?'background:rgba(22,163,74,.06);color:rgba(22,163,74,.6);border:1px dashed rgba(22,163,74,.3)':'background:var(--gl);color:var(--green)';
@@ -1241,13 +1283,10 @@ function renderWl(){
     } else {
       bs='background:var(--s2);color:var(--t3)'; bt='⊘ NEUTRAL';
     }
-
     const sc=s.strength>=70?'var(--green)':s.strength>=50?'var(--ora)':s.strength>=20?'var(--blue)':'var(--t3)';
     const vf=s.high_volatility?'<span style="font-size:9px;color:var(--red);margin-left:3px">⚠️</span>':'';
-    const belowHint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Mindestschwelle</span>`:'';
-    const opacity=isBelow?'opacity:.75':'';
-
-    return `<div class="wl-row ${rc}" style="${opacity}" onclick="openDetail(window._wlI[${i}])">
+    const belowHint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Schwelle</span>`:'';
+    return `<div class="wl-row ${rc}" style="${isBelow?'opacity:.75':''}" onclick="openDetail(window._wlI[${i}])">
       <div style="flex:1;min-width:0">
         <div class="wn">${s.name}${vf}</div>
         <div class="wt">${s.ticker}${belowHint}</div>
