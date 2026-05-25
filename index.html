@@ -198,8 +198,11 @@ input[type=range]{width:100%;accent-color:var(--blue)}
     <button class="region-btn active" id="rb-DE" onclick="setRegion('DE',this)">🇩🇪 Deutschland</button>
     <button class="region-btn" id="rb-EU" onclick="setRegion('EU',this)">🇪🇺 Europa</button>
     <button class="region-btn" id="rb-USA" onclick="setRegion('USA',this)">🇺🇸 USA</button>
-    <span class="region-info" id="region-info"></span>
   </div>
+  <div style="font-size:11px;color:var(--t3);margin-bottom:10px" id="region-info"></div>
+  <button id="start-btn" onclick="startAnalysis()" style="width:100%;padding:13px;border-radius:var(--r);background:var(--blue);color:#fff;border:none;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:14px;letter-spacing:.2px;transition:opacity .15s">
+    🔍 Analyse starten
+  </button>
   <div class="sg">
     <div class="sc"><div class="sv blu" id="s-analyzed">—</div><div class="sl">Analysiert</div></div>
     <div class="sc"><div class="sv" id="s-found">—</div><div class="sl">Signale</div></div>
@@ -347,16 +350,25 @@ function toast(msg,type=''){
 function fmt(n,d=2){if(n==null||isNaN(n))return'—';return parseFloat(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g,'.');}
 
 // ── Region ────────────────────────────────────────────────────────────────────
-const REGION_LABELS={DE:'🇩🇪 Deutschland (DAX 40 + TechDAX)',EU:'🇪🇺 Europa (Euro Stoxx + FTSE + SMI)',USA:'🇺🇸 USA (Dow Jones + NASDAQ 100)'};
+const REGION_LABELS={
+  DE:'🇩🇪 Deutschland (DAX 40 + TechDAX)',
+  EU:'🇪🇺 Europa (Euro Stoxx + FTSE + SMI)',
+  USA:'🇺🇸 USA (Dow Jones + NASDAQ 100)'
+};
 function setRegion(r,btn){
   curRegion=r;
   document.querySelectorAll('.region-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('region-info').textContent=REGION_LABELS[r]||r;
   document.getElementById('wl-region-label').textContent=r;
+  // Watchlist automatisch auf neue Region umschalten
+  _wlData=[]; // Cache leeren
+  if(document.getElementById('page-watchlist').classList.contains('active'))
+    loadWl(false);
+  // Signale-Tab: vorherige Ergebnisse leeren, NUR Status laden (kein Auto-Start)
   document.getElementById('signals-list').innerHTML='';
   document.getElementById('progress-area').innerHTML='';
-  loadSignals();
+  loadSignals(); // zeigt nur Status / vorherige Ergebnisse
 }
 document.getElementById('region-info').textContent=REGION_LABELS['DE'];
 
@@ -364,30 +376,63 @@ document.getElementById('region-info').textContent=REGION_LABELS['DE'];
 function getSeen(){try{return JSON.parse(localStorage.getItem('tb_seen')||'[]')}catch{return[]}}
 function markSeen(sigs){if(sigs?.length)localStorage.setItem('tb_seen',JSON.stringify(sigs.map(s=>s.ticker+'_'+s.direction)))}
 
-// ── Signale laden ─────────────────────────────────────────────────────────────
+// ── Analyse manuell starten ───────────────────────────────────────────────────
+async function startAnalysis(){
+  const btn=document.getElementById('start-btn');
+  btn.disabled=true;
+  btn.textContent='⏳ Analyse läuft…';
+  btn.style.opacity='.7';
+  if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+  try{
+    await fetch(`${API}/api/signals/refresh?region=${curRegion}`,{method:'POST'});
+    document.getElementById('progress-area').innerHTML=`<div class="pbox"><div style="font-size:13px;color:var(--t2)">⏳ ${curRegion}-Märkte werden analysiert…</div><div class="pbar-bg"><div class="pbar-f" style="width:0%"></div></div></div>`;
+    document.getElementById('signals-list').innerHTML='';
+    document.getElementById('s-analyzed').textContent='…';
+    document.getElementById('s-found').textContent='…';
+    document.getElementById('s-top').textContent='…';
+    pollTimer=setInterval(loadSignals,4000);
+  }catch(e){
+    toast('Server nicht erreichbar','err');
+    btn.disabled=false;
+    btn.textContent='🔍 Analyse starten';
+    btn.style.opacity='1';
+  }
+}
+
+// ── Signale laden (Status abfragen, kein Auto-Start) ─────────────────────────
 async function loadSignals(){
   return sf('signals',async()=>{
     try{
       const res=await fetch(`${API}/api/signals?region=${curRegion}`,{signal:AbortSignal.timeout(15000)});
       const d=await res.json();
-      const st=d.status||'done';
-      document.getElementById('s-analyzed').textContent=d.total_analyzed||'…';
-      document.getElementById('s-found').textContent=d.signals_found||(st==='done'?'0':'…');
-      document.getElementById('s-top').textContent=d.top_signals?.length?d.top_signals[0].strength+'/100 ('+d.top_signals.length+')':'—';
+      const st=d.status||'idle';
+      const btn=document.getElementById('start-btn');
+
+      // Stats aktualisieren
+      if(d.total_analyzed)  document.getElementById('s-analyzed').textContent=d.total_analyzed;
+      if(d.signals_found!=null) document.getElementById('s-found').textContent=d.signals_found;
+      if(d.top_signals?.length) document.getElementById('s-top').textContent=d.top_signals[0].strength+'/100 ('+d.top_signals.length+')';
+
       const pa=document.getElementById('progress-area');
-      if(st==='loading'||st==='running'){
+      if(st==='running'){
         const p=d.progress||0;
-        pa.innerHTML=`<div class="pbox"><div style="font-size:13px;margin-bottom:4px;color:var(--t2)">⏳ ${curRegion}-Märkte werden analysiert…</div><div class="pbar-bg"><div class="pbar-f" style="width:${p}%"></div></div><div style="font-size:11px;color:var(--t3)">${p}% – automatische Aktualisierung</div></div>`;
-        if(!pollTimer)pollTimer=setInterval(loadSignals,12000);
-      }else{
+        pa.innerHTML=`<div class="pbox"><div style="font-size:13px;margin-bottom:4px;color:var(--t2)">⏳ Analyse ${curRegion} – ${p}%</div><div class="pbar-bg"><div class="pbar-f" style="width:${p}%"></div></div></div>`;
+        btn.disabled=true; btn.textContent='⏳ Läuft…'; btn.style.opacity='.7';
+      } else if(st==='done'){
         pa.innerHTML='';
         if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+        btn.disabled=false; btn.textContent='🔍 Analyse starten'; btn.style.opacity='1';
         renderSignals(d.top_signals||[]);
+      } else {
+        // idle: Bereit für manuelle Analyse
+        pa.innerHTML='';
+        if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+        btn.disabled=false; btn.textContent='🔍 Analyse starten'; btn.style.opacity='1';
+        if(!d.top_signals?.length)
+          document.getElementById('signals-list').innerHTML=`<div class="empty"><div class="ei">🔍</div><div style="font-size:14px">Noch keine Analyse für ${curRegion}</div><div style="font-size:12px;color:var(--t3);margin-top:6px">Drücke „Analyse starten" um Signale zu suchen</div></div>`;
       }
     }catch(e){
-      if(!document.getElementById('signals-list').innerHTML.includes('sig-card'))
-        document.getElementById('signals-list').innerHTML='<div class="empty"><div class="ei">⏳</div><div>Server startet…<br><small style="color:var(--t3)">Bitte 30–60 Sekunden warten</small></div></div>';
-      if(!pollTimer)pollTimer=setInterval(loadSignals,15000);
+      document.getElementById('signals-list').innerHTML='<div class="empty"><div class="ei">⏳</div><div>Server startet…<br><small style="color:var(--t3)">Bitte warten</small></div></div>';
     }
   });
 }
@@ -451,17 +496,8 @@ function markAllSeen(){
   document.querySelector('[onclick="markAllSeen()"]')?.closest('div')?.remove();
 }
 
-async function doRefresh(){
-  const btn=document.getElementById('rbtn');btn.classList.add('spin');
-  try{
-    await fetch(`${API}/api/signals/refresh?region=${curRegion}`,{method:'POST'});
-    document.getElementById('progress-area').innerHTML='<div class="pbox"><div>⏳ Neue Analyse gestartet…</div><div class="pbar-bg"><div class="pbar-f" style="width:0%"></div></div></div>';
-    document.getElementById('signals-list').innerHTML='';
-    if(!pollTimer)pollTimer=setInterval(loadSignals,12000);
-    toast('Analyse für '+curRegion+' gestartet','ok');
-  }catch(e){toast('Fehler','err');}
-  btn.classList.remove('spin');
-}
+// Header-Refresh-Button leitet auf startAnalysis weiter
+async function doRefresh(){ startAnalysis(); }
 
 async function openTrade(sig,amount){
   try{
@@ -965,10 +1001,37 @@ function renderPositions(positions){
   const c=document.getElementById('positions-list');
   if(!positions.length){c.innerHTML='<div class="empty"><div class="ei">📭</div>Keine offenen Positionen</div>';return;}
   c.innerHTML=positions.map(p=>{
-    const pnl=p.unrealized_pnl||0;const lev=p.leverage>1?` · x${p.leverage}`:'' ;
-    return `<div class="pos-card" data-trade-id="${p.id}" data-ticker="${p.ticker}" data-entry="${p.entry_price}" data-dir="${p.direction}" data-units="${p.units}" data-lev="${p.leverage||1}" data-cost="${p.cost}">
+    const pnl=p.unrealized_pnl||0;
+    const isMF=p.is_mini_future&&p.leverage>1;
+    const lev=isMF?` · x${p.leverage}`:'' ;
+    const baseTicker=p.base_ticker||p.ticker;
+    const baseEntryPrice=p.base_entry_price;
+    const baseCurrentPrice=p.base_current_price;
+
+    // Basiswert-Block nur bei Mini-Futures
+    const baseBlock=isMF?`
+      <div style="background:var(--s1);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;border:1px solid var(--b)">
+        <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Basiswert (${baseTicker})</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+          <div><div class="pgl">Einstieg Basis</div><div class="pgv">${baseEntryPrice?fmt(baseEntryPrice):'—'}</div></div>
+          <div><div class="pgl">Aktuell Basis</div><div class="pgv base-cur" style="color:var(--blue)">${baseCurrentPrice?fmt(baseCurrentPrice):'—'}</div></div>
+        </div>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Derivat (MF x${p.leverage})</div>`:'';
+
+    return `<div class="pos-card"
+        data-trade-id="${p.id}"
+        data-ticker="${p.ticker}"
+        data-base-ticker="${baseTicker}"
+        data-is-mf="${isMF?'1':'0'}"
+        data-entry="${p.entry_price}"
+        data-dir="${p.direction}"
+        data-units="${p.units}"
+        data-lev="${p.leverage||1}"
+        data-cost="${p.cost}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div><div style="font-size:14px;font-weight:700">${p.name}</div>
+        <div>
+          <div style="font-size:14px;font-weight:700">${p.name}</div>
           <span class="badge ${p.direction==='BUY'?'bb':'bs'}" style="margin-top:4px">${p.direction==='BUY'?'▲ LONG':'▼ SHORT'}${lev}</span>
           ${p.risk_pct?`<span style="font-size:10px;color:var(--t3);margin-left:6px">Risiko ${p.risk_pct}%</span>`:''}
         </div>
@@ -977,13 +1040,16 @@ function renderPositions(positions){
           <div style="font-size:11px;color:var(--t3)">${p.unrealized_pnl_pct>=0?'+':''}${p.unrealized_pnl_pct||0}%</div>
         </div>
       </div>
+      ${baseBlock}
       <div class="pg">
         <div><div class="pgl">Einstieg</div><div class="pgv">${fmt(p.entry_price)}</div></div>
         <div><div class="pgl">Aktuell</div><div class="pgv pos-cur">${fmt(p.current_price)}</div></div>
         <div><div class="pgl">Stop Loss</div><div class="pgv neg">${fmt(p.stop_loss)}</div></div>
         <div><div class="pgl">Take Profit</div><div class="pgv pos">${fmt(p.take_profit)}</div></div>
       </div>
-      <button class="btn btn-sec" style="margin-top:10px;font-size:12px" onclick="closeTrade('${p.id}',${p.current_price})">Position schließen (${fmt(p.current_price)}€)</button>
+      <button class="btn btn-sec" style="margin-top:10px;font-size:12px" onclick="closeTrade('${p.id}',${p.current_price})">
+        Position schließen (${fmt(p.current_price)}€)
+      </button>
     </div>`;
   }).join('');
 }
@@ -1006,17 +1072,38 @@ async function closeTrade(id,price){
 }
 async function updateLivePrices(){
   for(const card of document.querySelectorAll('[data-trade-id]')){
-    const ticker=card.dataset.ticker;if(!ticker)continue;
+    const ticker=card.dataset.ticker; if(!ticker) continue;
+    const isMF=card.dataset.isMf==='1';
+    const baseTicker=card.dataset.baseTicker||ticker;
     try{
+      // MF-Ticker-Preis (Derivat)
       const res=await fetch(`${API}/api/price/${encodeURIComponent(ticker)}`,{signal:AbortSignal.timeout(8000)});
-      if(!res.ok)continue;const d=await res.json();const price=d.price;
-      const entry=parseFloat(card.dataset.entry);const dir=card.dataset.dir;
-      const units=parseFloat(card.dataset.units);const lev=parseFloat(card.dataset.lev)||1;const cost=parseFloat(card.dataset.cost);
+      if(!res.ok) continue;
+      const d=await res.json(); const price=d.price;
+      const entry=parseFloat(card.dataset.entry);
+      const dir=card.dataset.dir;
+      const units=parseFloat(card.dataset.units);
+      const lev=parseFloat(card.dataset.lev)||1;
+      const cost=parseFloat(card.dataset.cost);
       const pnl=dir==='BUY'?(price-entry)*units*lev:(entry-price)*units*lev;
-      const pe=card.querySelector('.pos-pnl');const ce=card.querySelector('.pos-cur');const cb=card.querySelector('.btn-sec');
+      const pe=card.querySelector('.pos-pnl');
+      const ce=card.querySelector('.pos-cur');
+      const cb=card.querySelector('.btn-sec');
       if(pe){pe.textContent=(pnl>=0?'+':'')+fmt(pnl)+'€';pe.style.color=pnl>=0?'var(--green)':'var(--red)';}
-      if(ce){ce.textContent=fmt(price);}
-      if(cb){cb.textContent=`Position schließen (${fmt(price)}€)`;cb.onclick=()=>closeTrade(card.dataset.tradeId||card.getAttribute('data-trade-id'),price);}
+      if(ce) ce.textContent=fmt(price);
+      if(cb){cb.textContent=`Position schließen (${fmt(price)}€)`;cb.onclick=()=>closeTrade(card.getAttribute('data-trade-id'),price);}
+
+      // Basiswert-Kurs nur bei MF-Positionen separat laden
+      if(isMF && baseTicker !== ticker){
+        try{
+          const br=await fetch(`${API}/api/price/${encodeURIComponent(baseTicker)}`,{signal:AbortSignal.timeout(8000)});
+          if(br.ok){
+            const bd=await br.json();
+            const bce=card.querySelector('.base-cur');
+            if(bce) bce.textContent=fmt(bd.price);
+          }
+        }catch(e){}
+      }
     }catch(e){}
   }
 }
@@ -1132,20 +1219,43 @@ function filterWl(f,btn){_wlFilter=f;document.querySelectorAll('.wf').forEach(b=
 function renderWl(){
   const c=document.getElementById('wl-container');
   let items=_wlData;
-  if(_wlFilter==='BUY')items=items.filter(x=>x.direction==='BUY');
-  else if(_wlFilter==='SELL')items=items.filter(x=>x.direction==='SELL');
-  else if(_wlFilter==='NEUTRAL')items=items.filter(x=>!x.direction||x.strength<20);
+  // NEUTRAL: nur echte Neutrals (kein Signal, direction='NEUTRAL')
+  if(_wlFilter==='BUY')   items=items.filter(x=>x.direction==='BUY');
+  else if(_wlFilter==='SELL')  items=items.filter(x=>x.direction==='SELL');
+  else if(_wlFilter==='NEUTRAL') items=items.filter(x=>x.direction==='NEUTRAL'||!x.direction);
   if(!items.length){c.innerHTML='<div class="empty"><div class="ei">🔍</div>Keine Einträge</div>';return;}
   window._wlI=items;
   c.innerHTML=items.map((s,i)=>{
-    const dir=s.direction||'NEUTRAL';const rc=dir==='BUY'?'buy':dir==='SELL'?'sell':'neutral';
-    const bs=dir==='BUY'?'background:var(--gl);color:var(--green)':dir==='SELL'?'background:var(--rl);color:var(--red)':'background:var(--s2);color:var(--t3)';
-    const bt=dir==='BUY'?'▲ LONG':dir==='SELL'?'▼ SHORT':'⊘ NEUTRAL';
-    const sc=s.strength>=70?'var(--green)':s.strength>=50?'var(--ora)':'var(--t3)';
+    const dir=s.direction||'NEUTRAL';
+    const isBelow=s.below_threshold&&dir!=='NEUTRAL'; // Schwaches Signal unter Mindestschwelle
+    const rc=dir==='BUY'?'buy':dir==='SELL'?'sell':'neutral';
+
+    // Schwache Signale: gedimmter Badge mit anderem Style
+    let bs, bt;
+    if(dir==='BUY'){
+      bs=isBelow?'background:rgba(22,163,74,.06);color:rgba(22,163,74,.6);border:1px dashed rgba(22,163,74,.3)':'background:var(--gl);color:var(--green)';
+      bt=isBelow?'▲ long (schwach)':'▲ LONG';
+    } else if(dir==='SELL'){
+      bs=isBelow?'background:rgba(220,38,38,.06);color:rgba(220,38,38,.6);border:1px dashed rgba(220,38,38,.3)':'background:var(--rl);color:var(--red)';
+      bt=isBelow?'▼ short (schwach)':'▼ SHORT';
+    } else {
+      bs='background:var(--s2);color:var(--t3)'; bt='⊘ NEUTRAL';
+    }
+
+    const sc=s.strength>=70?'var(--green)':s.strength>=50?'var(--ora)':s.strength>=20?'var(--blue)':'var(--t3)';
     const vf=s.high_volatility?'<span style="font-size:9px;color:var(--red);margin-left:3px">⚠️</span>':'';
-    return `<div class="wl-row ${rc}" onclick="openDetail(window._wlI[${i}])">
-      <div style="flex:1;min-width:0"><div class="wn">${s.name}${vf}</div><div class="wt">${s.ticker}</div></div>
-      <div style="text-align:right"><div style="font-family:monospace;font-size:13px;font-weight:700">${fmt(s.price)}</div><div style="font-size:10px;color:${sc};font-weight:700">${s.strength||0}/100</div></div>
+    const belowHint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Mindestschwelle</span>`:'';
+    const opacity=isBelow?'opacity:.75':'';
+
+    return `<div class="wl-row ${rc}" style="${opacity}" onclick="openDetail(window._wlI[${i}])">
+      <div style="flex:1;min-width:0">
+        <div class="wn">${s.name}${vf}</div>
+        <div class="wt">${s.ticker}${belowHint}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:monospace;font-size:13px;font-weight:${isBelow?'500':'700'}">${fmt(s.price)}</div>
+        <div style="font-size:10px;color:${sc};font-weight:700">${s.strength||0}/100</div>
+      </div>
       <span class="badge" style="${bs};margin-left:8px;font-size:10px">${bt}</span>
     </div>`;
   }).join('');
@@ -1168,44 +1278,49 @@ async function restoreP(){
 }
 
 // ── Auto-Routinen ─────────────────────────────────────────────────────────────
-setInterval(backupP,120000);
+setInterval(backupP, 120000);  // Portfolio alle 2 Min sichern
+
+// Signale werden NICHT automatisch geladen – nur manuell über "Analyse starten"
 setInterval(()=>{
   if(!document.hidden){
-    loadSignals();
-    if(document.getElementById('page-portfolio').classList.contains('active'))loadPortfolio();
+    // Laufende Analyse weiter pollen (falls noch running)
+    const btn=document.getElementById('start-btn');
+    if(btn&&btn.disabled) loadSignals();
+    // Portfolio-Tab aktuell halten
+    if(document.getElementById('page-portfolio').classList.contains('active')) loadPortfolio();
   }
-},10*60*1000);
+}, 8000);
+
 setInterval(()=>{
-  if(!document.hidden&&document.getElementById('page-portfolio').classList.contains('active'))updateLivePrices();
-},5*60*1000);
+  if(!document.hidden&&document.getElementById('page-portfolio').classList.contains('active'))
+    updateLivePrices();
+}, 5*60*1000);
+
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){if(window._currentSigs?.length)markSeen(window._currentSigs);}
   else{
     backupP();
-    const last=parseInt(localStorage.getItem('tb_last')||'0');
-    if(Date.now()-last>10*60*1000){
-      loadSignals();
-      if(document.getElementById('page-portfolio').classList.contains('active')){loadPortfolio();updateLivePrices();}
+    // Nur Status der laufenden Analyse abfragen, KEINE neue Analyse starten
+    const btn=document.getElementById('start-btn');
+    if(btn&&btn.disabled) loadSignals();
+    if(document.getElementById('page-portfolio').classList.contains('active')){
+      loadPortfolio(); updateLivePrices();
     }
-    localStorage.setItem('tb_last',Date.now().toString());
   }
 });
 window.addEventListener('beforeunload',()=>{if(window._currentSigs?.length)markSeen(window._currentSigs);});
 window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(window._currentSigs);});
 
-// Init
-// Settings sofort aus localStorage laden (falls vorhanden) – kein Warten auf Server
+// ── Init ─────────────────────────────────────────────────────────────────────
 (function initSettingsEarly(){
   const local = getLocalSettings();
-  if (local) {
-    // Min. Signalstärke sofort im Speicher halten, damit Analyse mit korrektem Wert startet
-    window._cachedSettings = local;
-  }
+  if (local) window._cachedSettings = local;
 })();
 
+// Nur Status der aktuellen Region abfragen (kein Auto-Start)
 loadSignals();
-loadSettings();   // lädt zusätzlich im Hintergrund vom Server
-setTimeout(restoreP,3000);
+loadSettings();
+setTimeout(restoreP, 3000);
 </script>
 </body>
 </html>

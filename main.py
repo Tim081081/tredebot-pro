@@ -166,8 +166,16 @@ def _atomic_write(path: str, data: dict):
         json.dump(data, f, ensure_ascii=False); tmp = f.name
     os.replace(tmp, path)
 
-# ── Settings ──────────────────────────────────────────────────────────────────
+# ── Settings (doppelte Persistenz: SQLite primär + JSON-Datei Fallback) ───────
 def load_settings() -> dict:
+    # 1. SQLite (überlebt Neustarts auf Render auch ohne Disk)
+    try:
+        with _get_conn() as c:
+            row = c.execute("SELECT value FROM portfolio WHERE key='settings'").fetchone()
+            if row:
+                return {**DEFAULTS, **json.loads(row["value"])}
+    except Exception: pass
+    # 2. JSON-Datei Fallback
     try:
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE) as f:
@@ -175,7 +183,18 @@ def load_settings() -> dict:
     except Exception: pass
     return dict(DEFAULTS)
 
-def save_settings(s: dict): _atomic_write(SETTINGS_FILE, s)
+def save_settings(s: dict):
+    # In beide Speicher schreiben
+    try:
+        with _get_conn() as c:
+            c.execute("INSERT OR REPLACE INTO portfolio (key,value) VALUES ('settings',?)",
+                      (json.dumps(s),))
+            c.commit()
+    except Exception: pass
+    try:
+        _atomic_write(SETTINGS_FILE, s)
+    except Exception: pass
+
 def get_s(k): return load_settings().get(k, DEFAULTS[k])
 
 # ── Portfolio (SQLite-basiert) ────────────────────────────────────────────────
@@ -396,15 +415,22 @@ def calc_position_size(cash,total,price,stop_loss,invest_amount,cfg):
     return round(cost/price,4),cost
 
 # ── Quick-Score & Analyse ─────────────────────────────────────────────────────
-def quick_score(ticker,name,min_strength,cfg):
+def quick_score(ticker, name, min_strength, cfg, include_weak=False):
+    """
+    include_weak=True: gibt auch Signale zurück die unter min_strength liegen
+    (für Watchlist-Vollansicht). Diese werden mit below_threshold=True markiert.
+    """
     df=fetch_ohlcv(ticker,period="6mo")
     if df is None or len(df)<60: return None
     try:
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
         ind=compute_indicators(c,h,l,v,cfg)
-        sig=build_signal(ticker,name,ind,min_strength,cfg)
+        # Für include_weak mit min_strength=0 aufrufen
+        effective_min = 0 if include_weak else min_strength
+        sig=build_signal(ticker,name,ind,effective_min,cfg)
         if sig is None: return None
+        sig["below_threshold"] = sig["strength"] < min_strength
         sig["indicators"]={"RSI (14)":round(ind["rsi"],1),"MACD":round(ind["mk"],4),
             "BB %B":round(ind["pb"],2),"Stoch %K":round(ind["sk"],1),
             "EMA 20":round(ind["e20"],2),"EMA 50":round(ind["e50"],2),
@@ -473,7 +499,7 @@ def full_analysis(ticker,name,min_strength=0):
     except Exception: return None
     finally: gc.collect()
 
-def run_analysis(region: str, min_strength: int):
+def run_analysis(region: str, min_strength: int) -> None:
     global _state
     with _lock:
         if _state[region].get("status")=="running": return
@@ -481,7 +507,7 @@ def run_analysis(region: str, min_strength: int):
     cfg=load_settings()
     items=list(REGIONS[region].items()); total=len(items); results=[]
     for i,(name,ticker) in enumerate(items):
-        sig=quick_score(ticker,name,min_strength,cfg)
+        sig=quick_score(ticker,name,min_strength,cfg,include_weak=False)
         if sig: results.append(sig)
         if i%5==4 or i==total-1:
             rs=sorted(results,key=lambda x:x["strength"],reverse=True)
@@ -520,15 +546,13 @@ def calc_mini_futures(direction,price,atr):
 @app.get("/api/signals")
 def get_signals(region: str = "DE"):
     if region not in REGIONS: region="DE"
-    cfg=load_settings(); ms=cfg["min_strength"]
     with _lock:
         st=dict(_state[region])
-    if st["status"]=="idle":
-        Thread(target=run_analysis,args=(region,ms),daemon=True).start()
-        return {"status":"loading","progress":0,"top_signals":[],"total_analyzed":0,
-                "signals_found":0,"region":region}
-    return {"status":st["status"],"progress":st["progress"],"top_signals":st.get("results",[]),
-            "total_analyzed":st.get("total_analyzed",0),"signals_found":st.get("signals_found",0),
+    # KEIN Auto-Start mehr – nur manuell über /api/signals/refresh
+    return {"status":st["status"],"progress":st.get("progress",0),
+            "top_signals":st.get("results",[]),
+            "total_analyzed":st.get("total_analyzed",0),
+            "signals_found":st.get("signals_found",0),
             "timestamp":st.get("timestamp"),"region":region}
 
 @app.post("/api/signals/refresh")
@@ -624,14 +648,27 @@ def get_chart(ticker: str, period: str = "3mo"):
 def get_watchlist(region: str = "DE"):
     if region not in REGIONS: region="DE"
     with _lock: st=dict(_state[region])
+    cfg=load_settings(); ms=cfg["min_strength"]
     all_results=st.get("all_results",[])
     analyzed={r["ticker"] for r in all_results}
-    neutrals=[{"ticker":t,"name":n,"price":None,"direction":"NEUTRAL","score":0,
-               "strength":0,"signals":[],"stop_loss":None,"take_profit":None,
-               "rsi":None,"timestamp":None}
-              for n,t in REGIONS[region].items() if t not in analyzed]
-    items=sorted(all_results+neutrals,key=lambda x:x.get("strength",0),reverse=True)
-    return {"status":st["status"],"items":items,"total":len(items),"region":region}
+
+    # Für noch nicht analysierte Werte: schwache Signale berechnen
+    extra=[]
+    for n,t in REGIONS[region].items():
+        if t not in analyzed:
+            sig=quick_score(t,n,ms,cfg,include_weak=True)
+            if sig:
+                extra.append(sig)
+            else:
+                extra.append({"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+                    "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+                    "rsi":None,"timestamp":None,"below_threshold":True})
+
+    # Alle Ergebnisse zusammenführen
+    combined=all_results+extra
+    items=sorted(combined,key=lambda x:x.get("strength",0),reverse=True)
+    return {"status":st["status"],"items":items,"total":len(items),"region":region,
+            "min_strength":ms}
 
 @app.get("/api/portfolio/backup")
 def backup_ep(): return load_portfolio()
@@ -735,7 +772,10 @@ def open_trade(req: TradeRequest):
          "stop_loss":req.stop_loss,"take_profit":req.take_profit,"score":req.score,"signals":req.signals,
          "unrealized_pnl":0.,"unrealized_pnl_pct":0.,"current_value":cost,
          "risk_amount":ra,"risk_pct":rp,"is_mini_future":req.is_mini_future,
-         "leverage":req.mini_future_leverage,"opened":datetime.now().isoformat()}
+         "leverage":req.mini_future_leverage,
+         "base_ticker": req.ticker.split()[0] if " " in req.ticker else req.ticker,
+         "base_entry_price": None,  # wird beim ersten Live-Update befüllt
+         "opened":datetime.now().isoformat()}
     p["cash"]=round(p["cash"]-tc,2); p["positions"].append(pos)
     invalidate_portfolio_cache(); save_portfolio(p)
     return {"success":True,"trade":pos,"fee_charged":fee,"risk_amount":ra,"risk_pct":rp}
@@ -816,5 +856,4 @@ def manifest():
     p=Path(__file__).parent/"manifest.json"
     return JSONResponse(json.loads(p.read_text()) if p.exists() else {})
 
-# Auto-Analyse beim Start (Standard: DE)
-Thread(target=run_analysis,args=("DE",20),daemon=True).start()
+# Kein Auto-Start – Analyse wird nur manuell über den "Analyse starten"-Button ausgelöst
