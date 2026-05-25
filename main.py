@@ -116,13 +116,19 @@ for _reg in REGIONS.values():
         TICKER_TO_NAME[_t] = _n
         VALID_TICKERS.add(_t)
 
-# ── Persistenz: SQLite (überlebt Deploys, Neuschreibungen) ───────────────────
-# Render.com: /opt/render/project/src ist persistenter Speicher wenn Disk gemountet
-# Fallback: /tmp (geht bei Neustart verloren, aber Portfolio-Backup im Browser)
+# ── Persistenz: SQLite ───────────────────────────────────────────────────────
+# WICHTIG: /opt/render/project/src wird bei jedem Deploy überschrieben → NICHT verwenden
+# Render Persistent Disk mountet nach /data → ideal
+# Fallback: Home-Verzeichnis des Prozesses → überlebt Sleeps, nicht Deploys
+# Letzter Fallback: /tmp → geht bei jedem Restart verloren
 def _get_db_path() -> str:
-    for candidate in ["/opt/render/project/src", "/data", os.path.expanduser("~")]:
-        if os.path.isdir(candidate) and os.access(candidate, os.W_OK):
-            return os.path.join(candidate, "tradebot.db")
+    for candidate in ["/data", os.path.expanduser("~/.tradebot")]:
+        try:
+            os.makedirs(candidate, exist_ok=True)
+            if os.access(candidate, os.W_OK):
+                return os.path.join(candidate, "tradebot.db")
+        except Exception:
+            pass
     return "/tmp/tradebot.db"
 
 DB_PATH      = _get_db_path()
@@ -704,7 +710,23 @@ def reset_ep():
     return {"success":True,"message":f"Portfolio zurückgesetzt auf {sc:.0f}€"}
 
 @app.get("/api/settings")
-def get_settings_ep(): return load_settings()
+def get_settings_ep():
+    s = load_settings()
+    # is_default=True signalisiert dem Frontend dass keine User-Settings im Backend vorhanden sind
+    # → Frontend soll in diesem Fall seine localStorage-Werte als Master verwenden
+    is_default = s == DEFAULTS
+    return {**s, "_is_default": is_default}
+
+@app.post("/api/settings/restore")
+def restore_settings_ep(data: dict):
+    """Stellt Settings aus Browser-Backup wieder her (nach Deploy)."""
+    # Nur bekannte Keys übernehmen, keine unbekannten Felder
+    valid = {k: data[k] for k in DEFAULTS if k in data}
+    if not valid:
+        raise HTTPException(400, "Keine gültigen Settings-Daten")
+    merged = {**DEFAULTS, **valid}
+    save_settings(merged)
+    return merged
 
 class SettingsRequest(BaseModel):
     min_strength:  int   = Field(default=20,    ge=10,   le=80)
@@ -783,18 +805,82 @@ def open_trade(req: TradeRequest):
     tid=f"T{len(p['closed_trades'])+len(p['positions'])+1:04d}"
     dist=abs(req.price-req.stop_loss)
     ra=round(dist*units,2); rp=round(ra/total_val*100,2) if total_val>0 else 0
+
+    # Basiswert-Ticker ermitteln (bei MF: der reine Ticker ohne " x5" Suffix)
+    base_ticker = req.ticker.split()[0] if " " in req.ticker else req.ticker
+
+    # Basiswert-Einstiegskurs JETZT abrufen (nicht später)
+    base_entry_price = None
+    is_mf = req.is_mini_future and req.mini_future_leverage > 1
+    if is_mf and base_ticker in VALID_TICKERS:
+        try:
+            # Gecachten Preis verwenden falls vorhanden
+            cached = _price_cache.get(base_ticker)
+            if cached and time.time() - cached["ts"] < PRICE_CACHE_TTL:
+                base_entry_price = cached["price"]
+            else:
+                df = fetch_ohlcv(base_ticker, period="5d", timeout=8)
+                if df is not None and not df.empty:
+                    base_entry_price = round(float(df["Close"].iloc[-1]), 2)
+                    # Auch in Price-Cache speichern
+                    prev = float(df["Close"].iloc[-2]) if len(df) >= 2 else base_entry_price
+                    _price_cache[base_ticker] = {
+                        "ticker": base_ticker, "price": base_entry_price,
+                        "change": round(base_entry_price - prev, 2),
+                        "change_pct": round((base_entry_price - prev) / prev * 100, 2) if prev else 0,
+                        "ts": time.time(), "timestamp": datetime.now().isoformat()
+                    }
+        except Exception:
+            pass  # Kurs nicht verfügbar – bleibt None, wird im Frontend als "—" angezeigt
+
     pos={"id":tid,"ticker":req.ticker,"name":req.name,"direction":req.direction,
          "entry_price":req.price,"current_price":req.price,"units":units,"cost":cost,"fee":fee,
          "stop_loss":req.stop_loss,"take_profit":req.take_profit,"score":req.score,"signals":req.signals,
          "unrealized_pnl":0.,"unrealized_pnl_pct":0.,"current_value":cost,
          "risk_amount":ra,"risk_pct":rp,"is_mini_future":req.is_mini_future,
          "leverage":req.mini_future_leverage,
-         "base_ticker": req.ticker.split()[0] if " " in req.ticker else req.ticker,
-         "base_entry_price": None,  # wird beim ersten Live-Update befüllt
+         "base_ticker": base_ticker,
+         "base_entry_price": base_entry_price,
+         "base_current_price": base_entry_price,  # initial = Einstiegskurs
          "opened":datetime.now().isoformat()}
     p["cash"]=round(p["cash"]-tc,2); p["positions"].append(pos)
     invalidate_portfolio_cache(); save_portfolio(p)
     return {"success":True,"trade":pos,"fee_charged":fee,"risk_amount":ra,"risk_pct":rp}
+
+@app.post("/api/portfolio/fix-base-prices")
+def fix_base_prices():
+    """
+    Repariert bestehende Positionen die base_entry_price=None haben.
+    Wird einmalig beim Portfolio-Laden aufgerufen wenn fehlende Werte erkannt werden.
+    """
+    p = load_portfolio()
+    fixed = 0
+    for pos in p["positions"]:
+        if pos.get("base_entry_price") is None and pos.get("is_mini_future"):
+            base_ticker = pos.get("base_ticker", pos["ticker"].split()[0])
+            if base_ticker not in VALID_TICKERS:
+                continue
+            try:
+                cached = _price_cache.get(base_ticker)
+                if cached and time.time() - cached["ts"] < PRICE_CACHE_TTL:
+                    price = cached["price"]
+                else:
+                    df = fetch_ohlcv(base_ticker, period="5d", timeout=8)
+                    if df is None or df.empty:
+                        continue
+                    price = round(float(df["Close"].iloc[-1]), 2)
+                # Setze base_entry_price auf aktuellen Kurs
+                # (bester verfügbarer Näherungswert für bestehende Positionen)
+                pos["base_entry_price"]  = price
+                pos["base_current_price"] = price
+                pos["base_ticker"] = base_ticker
+                fixed += 1
+            except Exception:
+                continue
+    if fixed > 0:
+        invalidate_portfolio_cache()
+        save_portfolio(p)
+    return {"success": True, "fixed": fixed}
 
 class CloseRequest(BaseModel):
     trade_id:str; close_price:float=Field(...,gt=0)
