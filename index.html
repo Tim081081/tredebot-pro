@@ -408,32 +408,60 @@ async function loadSignals(){
       const d=await res.json();
       const st=d.status||'idle';
       const btn=document.getElementById('start-btn');
-
-      // Stats aktualisieren
-      if(d.total_analyzed)  document.getElementById('s-analyzed').textContent=d.total_analyzed;
-      if(d.signals_found!=null) document.getElementById('s-found').textContent=d.signals_found;
-      if(d.top_signals?.length) document.getElementById('s-top').textContent=d.top_signals[0].strength+'/100 ('+d.top_signals.length+')';
-
       const pa=document.getElementById('progress-area');
+
       if(st==='running'){
+        // Analyse läuft: nur Fortschritt zeigen, KEINE Teilergebnisse
         const p=d.progress||0;
-        pa.innerHTML=`<div class="pbox"><div style="font-size:13px;margin-bottom:4px;color:var(--t2)">⏳ Analyse ${curRegion} – ${p}%</div><div class="pbar-bg"><div class="pbar-f" style="width:${p}%"></div></div></div>`;
-        btn.disabled=true; btn.textContent='⏳ Läuft…'; btn.style.opacity='.7';
+        const total=d.total_analyzed||'?';
+        pa.innerHTML=`<div class="pbox">
+          <div style="font-size:13px;margin-bottom:4px;color:var(--t2)">⏳ Analysiere ${curRegion}… ${p}% (${total} Werte)</div>
+          <div class="pbar-bg"><div class="pbar-f" style="width:${p}%"></div></div>
+          <div style="font-size:11px;color:var(--t3);margin-top:4px">Ergebnisse werden nach vollständiger Analyse angezeigt</div>
+        </div>`;
+        document.getElementById('signals-list').innerHTML='';
+        document.getElementById('s-analyzed').textContent=total;
+        document.getElementById('s-found').textContent='…';
+        document.getElementById('s-top').textContent='…';
+        btn.disabled=true; btn.textContent=`⏳ ${p}% analysiert`; btn.style.opacity='.7';
+
       } else if(st==='done'){
+        // Analyse abgeschlossen: alle Ergebnisse anzeigen
         pa.innerHTML='';
         if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
         btn.disabled=false; btn.textContent='🔍 Analyse starten'; btn.style.opacity='1';
+
+        // Stats
+        document.getElementById('s-analyzed').textContent=d.total_analyzed||'—';
+        document.getElementById('s-found').textContent=d.signals_found||0;
+        document.getElementById('s-top').textContent=
+          d.top_signals?.length ? d.top_signals[0].strength+'/100 ('+d.top_signals.length+')' : '—';
+
+        // Signale (nur über Schwelle – vom Backend bereits gefiltert)
         renderSignals(d.top_signals||[]);
+
+        // Watchlist-Cache leeren damit sie sich beim nächsten Öffnen aktualisiert
+        _wlData=[]; _wlRegion='';
+        if(document.getElementById('page-watchlist').classList.contains('active'))
+          loadWl(true);
+
       } else {
-        // idle: Bereit für manuelle Analyse
+        // idle: warten auf manuelle Analyse
         pa.innerHTML='';
         if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
         btn.disabled=false; btn.textContent='🔍 Analyse starten'; btn.style.opacity='1';
-        if(!d.top_signals?.length)
-          document.getElementById('signals-list').innerHTML=`<div class="empty"><div class="ei">🔍</div><div style="font-size:14px">Noch keine Analyse für ${curRegion}</div><div style="font-size:12px;color:var(--t3);margin-top:6px">Drücke „Analyse starten" um Signale zu suchen</div></div>`;
+        document.getElementById('s-analyzed').textContent='—';
+        document.getElementById('s-found').textContent='—';
+        document.getElementById('s-top').textContent='—';
+        document.getElementById('signals-list').innerHTML=
+          `<div class="empty"><div class="ei">🔍</div>
+           <div style="font-size:14px">Noch keine Analyse für ${curRegion}</div>
+           <div style="font-size:12px;color:var(--t3);margin-top:6px">„Analyse starten" drücken um Signale zu suchen</div>
+          </div>`;
       }
     }catch(e){
-      document.getElementById('signals-list').innerHTML='<div class="empty"><div class="ei">⏳</div><div>Server startet…<br><small style="color:var(--t3)">Bitte warten</small></div></div>';
+      document.getElementById('signals-list').innerHTML=
+        '<div class="empty"><div class="ei">⏳</div><div>Server startet…<br><small style="color:var(--t3)">Bitte warten</small></div></div>';
     }
   });
 }
@@ -851,40 +879,114 @@ function indAmpel(key, raw) {
   }
 }
 
+// Kategorie-Zuordnung der Indikatoren
+const IND_CATEGORIES = {
+  A: {
+    label: 'Gruppe A – Momentum & Oszillatoren',
+    color: '#7c3aed',
+    bg:    'rgba(124,58,237,.08)',
+    keys:  ['RSI (14)','BB %B','BB Upper','BB Lower','Stoch %K','Stoch %D','Williams %R','CCI (20)','ATR (14)','ATR %','⚠️ Volatilität']
+  },
+  B: {
+    label: 'Gruppe B – Trendfolger',
+    color: '#2563eb',
+    bg:    'rgba(37,99,235,.06)',
+    keys:  ['MACD','MACD Signal','EMA 20','EMA 50','EMA 100','EMA 200','ADX','+DI','-DI','Marktphase']
+  },
+  C: {
+    label: 'Gruppe C – Marktstruktur',
+    color: '#16a34a',
+    bg:    'rgba(22,163,74,.06)',
+    keys:  ['OBV Trend','Pivot','R1','R2','S1','S2','52W Hoch','52W Tief','52W Position','ROC (10)']
+  },
+  INFO: {
+    label: 'Info (nicht im Score)',
+    color: '#94a3b8',
+    bg:    'rgba(148,163,184,.06)',
+    keys:  ['Analysten','Kursziel']
+  }
+};
+
+function getCategoryForKey(key) {
+  for (const [cat, def] of Object.entries(IND_CATEGORIES)) {
+    if (def.keys.includes(key)) return cat;
+  }
+  return 'INFO';
+}
+
 function renderIndicators(d){
-  const ind=d.indicators||{};
-  document.getElementById('vbox').innerHTML=d.high_volatility?
-    `<div class="vwarn" style="margin-bottom:10px">⚠️ <strong>Hohe Volatilität</strong> – Score wurde halbiert. Kleinere Positionen empfohlen!</div>`:'';
-  document.getElementById('abox').innerHTML=d.analyst?.recommendation?
-    `<div class="abox">ℹ️ <strong>Analysten-Konsens (nur Information, nicht im Score):</strong><br>${d.analyst.recommendation} · ${d.analyst.analysts} Analysten${d.analyst.target?` · Kursziel: ${fmt(d.analyst.target)} €`:''}</div>`:'';
-  const filtered=Object.entries(ind).filter(([k])=>k!=='Analysten'&&k!=='Kursziel');
-  document.getElementById('ind-body').innerHTML=filtered.map(([k,v])=>{
-    const isW=k.includes('⚠️')||String(v).includes('ERHÖHT');
-    const hasI=!!IND[k];
-    const ampel=indAmpel(k,v);
-    const ampelHtml=ampel?`<span title="${ampel.hint}" style="display:inline-flex;align-items:center;gap:3px;background:${ampel.bg};color:${ampel.c};font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px;cursor:help;white-space:nowrap">${ampel.t} ${ampel.label}</span>`:'';
-    const hintHtml=ampel?`<div style="font-size:10px;color:var(--t3);margin-top:2px;padding-left:1px">${ampel.hint}</div>`:'';
-    return `<tr${isW?' style="background:rgba(220,38,38,.04)"':''}>
+  const ind = d.indicators || {};
+
+  document.getElementById('vbox').innerHTML = d.high_volatility
+    ? `<div class="vwarn" style="margin-bottom:10px">⚠️ <strong>Hohe Volatilität</strong> – Score wurde halbiert. Kleinere Positionen empfohlen!</div>` : '';
+  document.getElementById('abox').innerHTML = d.analyst?.recommendation
+    ? `<div class="abox">ℹ️ <strong>Analysten-Konsens (nur Information, nicht im Score):</strong><br>${d.analyst.recommendation} · ${d.analyst.analysts} Analysten${d.analyst.target ? ` · Kursziel: ${fmt(d.analyst.target)} €` : ''}</div>` : '';
+
+  // Indikatoren nach Kategorie gruppieren
+  const grouped = { A: [], B: [], C: [], INFO: [] };
+  for (const [k, v] of Object.entries(ind)) {
+    if (k === 'Analysten' || k === 'Kursziel') { grouped.INFO.push([k,v]); continue; }
+    grouped[getCategoryForKey(k)].push([k, v]);
+  }
+
+  // Indikatoren-Tabelle mit Kategorie-Headern
+  const renderRow = ([k, v]) => {
+    const isW    = k.includes('⚠️') || String(v).includes('ERHÖHT');
+    const hasI   = !!IND[k];
+    const ampel  = indAmpel(k, v);
+    const aHtml  = ampel
+      ? `<span title="${ampel.hint}" style="display:inline-flex;align-items:center;gap:3px;background:${ampel.bg};color:${ampel.c};font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px;cursor:help;white-space:nowrap">${ampel.t} ${ampel.label}</span>` : '';
+    const hHtml  = ampel
+      ? `<div style="font-size:10px;color:var(--t3);margin-top:2px">${ampel.hint}</div>` : '';
+    return `<tr${isW ? ' style="background:rgba(220,38,38,.04)"' : ''}>
       <td style="color:var(--t2);vertical-align:top;padding-top:8px">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px">
-          ${k}${hasI?`<button class="ibtn2" onclick="showInfo('${k}')">i</button>`:''}
-          ${ampelHtml}
-        </div>
-        ${hintHtml}
+          ${k}${hasI ? `<button class="ibtn2" onclick="showInfo('${k}')">i</button>` : ''}${aHtml}
+        </div>${hHtml}
       </td>
-      <td style="font-family:monospace;text-align:right;vertical-align:top;padding-top:8px;color:${isW?'var(--red)':ampel?ampel.c:'var(--text)'};font-weight:${ampel&&ampel.label!=='NEUTRAL'?'700':'400'}">${v}</td></tr>`;
-  }).join('');
-  const sd=d.score_detail;
-  document.getElementById('sd-box').innerHTML=sd?`
+      <td style="font-family:monospace;text-align:right;vertical-align:top;padding-top:8px;color:${isW?'var(--red)':ampel?ampel.c:'var(--text)'};font-weight:${ampel&&ampel.label!=='NEUTRAL'?'700':'400'}">${v}</td>
+    </tr>`;
+  };
+
+  const renderCatHeader = (cat) => {
+    const def = IND_CATEGORIES[cat];
+    const sd  = d.score_detail;
+    const catScore = cat === 'A' ? sd?.momentum : cat === 'B' ? sd?.trend : cat === 'C' ? sd?.structure : null;
+    const scoreHtml = (sd && catScore !== null && catScore !== undefined)
+      ? `<span style="font-family:monospace;font-weight:800;font-size:12px;margin-left:8px;color:${catScore>0?'var(--green)':catScore<0?'var(--red)':'var(--t3)'}">${catScore>0?'+':''}${catScore}</span>` : '';
+    return `<tr><td colspan="2" style="background:${def.bg};padding:8px 8px 6px;border-bottom:2px solid ${def.color}20">
+      <span style="font-size:10px;font-weight:800;color:${def.color};text-transform:uppercase;letter-spacing:.5px">${def.label}</span>${scoreHtml}
+    </td></tr>`;
+  };
+
+  let html = '';
+  for (const cat of ['A','B','C']) {
+    if (grouped[cat].length === 0) continue;
+    html += renderCatHeader(cat);
+    html += grouped[cat].map(renderRow).join('');
+  }
+  // Info-Indikatoren (Analysten etc.) ganz unten ohne Score
+  if (grouped.INFO.length > 0) {
+    html += `<tr><td colspan="2" style="padding:8px 8px 4px;border-top:1px solid var(--b)">
+      <span style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px">Nur zur Information</span>
+    </td></tr>`;
+    html += grouped.INFO.map(renderRow).join('');
+  }
+
+  document.getElementById('ind-body').innerHTML = html;
+
+  // Score-Aufschlüsselung
+  const sd = d.score_detail;
+  document.getElementById('sd-box').innerHTML = sd ? `
     <div class="sbox">
-      <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Score-Aufschlüsselung</div>
+      <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Gesamt-Score</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;text-align:center">
-        <div><div style="color:var(--t3)">Momentum A</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.momentum>0?'var(--green)':sd.momentum<0?'var(--red)':'var(--t3)'}">${sd.momentum>0?'+':''}${sd.momentum}</div></div>
-        <div><div style="color:var(--t3)">Trendfolger B</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.trend>0?'var(--green)':sd.trend<0?'var(--red)':'var(--t3)'}">${sd.trend>0?'+':''}${sd.trend}</div></div>
-        <div><div style="color:var(--t3)">Struktur C</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.structure>0?'var(--green)':sd.structure<0?'var(--red)':'var(--t3)'}">${sd.structure>0?'+':''}${sd.structure}</div></div>
+        <div><div style="color:#7c3aed;font-weight:700;font-size:10px">A: Momentum</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.momentum>0?'var(--green)':sd.momentum<0?'var(--red)':'var(--t3)'}">${sd.momentum>0?'+':''}${sd.momentum}</div></div>
+        <div><div style="color:#2563eb;font-weight:700;font-size:10px">B: Trendfolger</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.trend>0?'var(--green)':sd.trend<0?'var(--red)':'var(--t3)'}">${sd.trend>0?'+':''}${sd.trend}</div></div>
+        <div><div style="color:#16a34a;font-weight:700;font-size:10px">C: Struktur</div><div style="font-family:monospace;font-weight:800;font-size:15px;color:${sd.structure>0?'var(--green)':sd.structure<0?'var(--red)':'var(--t3)'}">${sd.structure>0?'+':''}${sd.structure}</div></div>
       </div>
       <div style="text-align:center;margin-top:8px;font-size:11px;color:var(--t3)">Bestätigt: <strong style="color:var(--blue)">${d.confirming_groups||'?'}/3 Gruppen</strong></div>
-    </div>`:'';
+    </div>` : '';
 }
 
 // ── Mini-Futures ──────────────────────────────────────────────────────────────
@@ -963,7 +1065,7 @@ async function loadPortfolio(){
       document.getElementById('p-trades').textContent=s.total_trades||0;
       document.getElementById('p-wr').textContent=(s.win_rate||0)+'%';
       document.getElementById('p-fees').textContent=fmt(s.fees_paid||0)+'€';
-      renderLimits(s.limits);renderExitSigs(ed.exit_signals||[]);
+      renderLimits(s.limits);renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
       const positions=pd.portfolio?.positions||[];
       renderPositions(positions);renderHistory(pd.portfolio?.closed_trades||[]);
 
@@ -1000,17 +1102,33 @@ function renderLimits(l){
     </div>
   </div>`;
 }
-function renderExitSigs(sigs){
+function renderExitSigs(sigs, minStrength){
   const c=document.getElementById('exit-list');
-  if(!sigs.length){c.innerHTML='<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">Keine Exit-Signale.</div>';return;}
-  c.innerHTML=sigs.map(s=>`<div class="exit-card ${s.urgency}">
-    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-      <b style="font-size:13px">${s.name} · ${s.direction}</b>
-      <span style="color:${s.pnl_pct>=0?'var(--green)':'var(--red)'};font-family:monospace;font-weight:700">${s.pnl_pct>=0?'+':''}${s.pnl_pct}%</span>
-    </div>
-    ${s.exit_reasons.map(r=>`<div style="font-size:12px;color:${s.urgency==='urgent'?'var(--red)':'var(--ora)'};margin-bottom:3px">${r}</div>`).join('')}
-    <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${s.current_price})">${s.recommendation}: ${s.current_price}€</button>
-  </div>`).join('');
+  if(!sigs.length){
+    c.innerHTML=`<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">
+      Keine Exit-Signale. Mindest-Signalstärke für Exit: ${minStrength||'—'}/100
+    </div>`;
+    return;
+  }
+  c.innerHTML=sigs.map(s=>{
+    const strHtml = s.exit_strength
+      ? `<span style="font-family:monospace;font-weight:700;font-size:11px;color:var(--blue)"> · Stärke ${s.exit_strength}/100</span>`
+      : '';
+    const col=s.urgency==='urgent'?'var(--red)':'var(--ora)';
+    return `<div class="exit-card ${s.urgency}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <b style="font-size:13px">${s.name} · ${s.direction}</b>${strHtml}
+          <div style="font-size:10px;color:var(--t3);margin-top:2px">${s.ticker} · Einstieg: ${fmt(s.entry_price)}</div>
+        </div>
+        <span style="color:${s.pnl_pct>=0?'var(--green)':'var(--red)'};font-family:monospace;font-weight:700">${s.pnl_pct>=0?'+':''}${s.pnl_pct}%</span>
+      </div>
+      ${s.exit_reasons.map(r=>`<div style="font-size:12px;color:${col};margin-bottom:3px">${r}</div>`).join('')}
+      <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${s.current_price})">
+        ✕ Position schließen zu ${fmt(s.current_price)}€
+      </button>
+    </div>`;
+  }).join('');
 }
 function renderPositions(positions){
   const c=document.getElementById('positions-list');
@@ -1300,27 +1418,41 @@ let _wlData=[],_wlFilter='all',_wlRegion='';
 
 async function loadWl(force=false){
   const c=document.getElementById('wl-container');
-  // Cache nur leeren wenn Region gewechselt oder force
   if(force||_wlRegion!==curRegion){
-    _wlData=[];
-    _wlRegion=curRegion;
+    _wlData=[]; _wlRegion=curRegion;
   }
-  // Immer frisch laden (auch wenn _wlData befüllt, da Analyse sich ändern kann)
   c.innerHTML='<div class="empty"><div class="ei">⏳</div>Lade Werte…</div>';
   try{
-    const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,
-                        {signal:AbortSignal.timeout(15000)});
+    const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,{signal:AbortSignal.timeout(15000)});
     const d=await r.json();
     _wlData=d.items||[];
     document.getElementById('wl-region-label').textContent=curRegion;
 
-    // Hinweis wenn noch Analyse läuft oder Daten noch ausstehen
-    const pendingCount=d.pending_count||0;
-    const statusHint=d.status==='running'
-      ? `<div style="background:var(--bl);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--blue)">⏳ Analyse läuft – ${d.analyzed_count||0} von ${d.total||0} Werten analysiert. Bitte warten oder neu laden.</div>`
-      : (d.status==='idle'&&pendingCount>0
-          ? `<div style="background:var(--s2);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--t3)">ℹ️ ${d.analyzed_count||0} Werte analysiert. Für vollständige Daten Analyse im Signale-Tab starten.</div>`
-          : '');
+    let statusHint='';
+    if(d.status==='running'){
+      // Analyse läuft noch → alle paar Sekunden neu laden
+      statusHint=`<div style="background:var(--bl);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--blue)">
+        ⏳ Analyse läuft… ${d.analyzed_count||0} von ${d.total||0} Werten fertig. Liste aktualisiert sich automatisch.
+      </div>`;
+      // Auto-Refresh bis Analyse fertig
+      if(!window._wlPollTimer){
+        window._wlPollTimer=setInterval(async()=>{
+          const check=await fetch(`${API}/api/signals?region=${curRegion}`).then(r=>r.json()).catch(()=>({status:'idle'}));
+          if(check.status==='done'){
+            clearInterval(window._wlPollTimer); window._wlPollTimer=null;
+            _wlData=[]; _wlRegion='';
+            loadWl(true);
+          }
+        },5000);
+      }
+    } else if(d.status==='idle'&&!d.is_complete){
+      statusHint=`<div style="background:var(--s2);border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--t3)">
+        ℹ️ Noch keine Analyse für ${curRegion} gestartet. Im Tab „Signale" → „Analyse starten" drücken für vollständige Daten.
+      </div>`;
+    } else if(d.is_complete){
+      // Stop eventuellen Poll
+      if(window._wlPollTimer){clearInterval(window._wlPollTimer);window._wlPollTimer=null;}
+    }
 
     if(!_wlData.length){
       c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Daten – bitte Analyse starten</div>';
@@ -1328,7 +1460,7 @@ async function loadWl(force=false){
     }
     renderWl(statusHint);
   }catch(e){
-    c.innerHTML='<div class="empty"><div class="ei">⚠️</div>Verbindungsfehler – bitte erneut versuchen</div>';
+    c.innerHTML='<div class="empty"><div class="ei">⚠️</div>Verbindungsfehler</div>';
   }
 }
 function filterWl(f,btn){
@@ -1344,52 +1476,86 @@ function renderWl(statusHint=''){
   if(_wlFilter==='BUY')        items=items.filter(x=>x.direction==='BUY');
   else if(_wlFilter==='SELL')  items=items.filter(x=>x.direction==='SELL');
   else if(_wlFilter==='NEUTRAL') items=items.filter(x=>x.direction==='NEUTRAL'||!x.direction);
+
   if(!items.length){
     c.innerHTML=statusHint+'<div class="empty"><div class="ei">🔍</div>Keine Einträge für diesen Filter</div>';
     return;
   }
-  window._wlI=items;
-  c.innerHTML=statusHint+items.map((s,i)=>{
-    // Platzhalter: noch nicht analysiert
-    if(s.pending){
-      return `<div class="wl-row neutral" style="opacity:.45">
-        <div style="flex:1;min-width:0">
-          <div class="wn">${s.name}</div>
-          <div class="wt">${s.ticker} · noch nicht analysiert</div>
-        </div>
-        <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
-        <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊙ OFFEN</span>
-      </div>`;
-    }
+
+  // Trenne starke (über Schwelle) von schwachen
+  const strong  = items.filter(x=>!x.pending && !x.below_threshold && x.direction!=='NEUTRAL');
+  const weak    = items.filter(x=>!x.pending &&  x.below_threshold && x.direction!=='NEUTRAL');
+  const neutral = items.filter(x=>!x.pending && x.direction==='NEUTRAL');
+  const pending = items.filter(x=>x.pending);
+
+  const renderItem=(s,i,allItems)=>{
+    const idx=allItems.indexOf(s);
+    if(s.pending) return `<div class="wl-row neutral" style="opacity:.4">
+      <div style="flex:1;min-width:0"><div class="wn">${s.name}</div><div class="wt">${s.ticker} · noch nicht analysiert</div></div>
+      <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
+      <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊙ OFFEN</span>
+    </div>`;
 
     const dir=s.direction||'NEUTRAL';
     const isBelow=s.below_threshold&&dir!=='NEUTRAL';
     const rc=dir==='BUY'?'buy':dir==='SELL'?'sell':'neutral';
-    let bs, bt;
+    let bs,bt;
     if(dir==='BUY'){
-      bs=isBelow?'background:rgba(22,163,74,.06);color:rgba(22,163,74,.6);border:1px dashed rgba(22,163,74,.3)':'background:var(--gl);color:var(--green)';
-      bt=isBelow?'▲ long (schwach)':'▲ LONG';
+      bs=isBelow?'background:rgba(22,163,74,.06);color:rgba(22,163,74,.5);border:1px dashed rgba(22,163,74,.25)':'background:var(--gl);color:var(--green)';
+      bt=isBelow?'▲ long':'▲ LONG';
     } else if(dir==='SELL'){
-      bs=isBelow?'background:rgba(220,38,38,.06);color:rgba(220,38,38,.6);border:1px dashed rgba(220,38,38,.3)':'background:var(--rl);color:var(--red)';
-      bt=isBelow?'▼ short (schwach)':'▼ SHORT';
+      bs=isBelow?'background:rgba(220,38,38,.06);color:rgba(220,38,38,.5);border:1px dashed rgba(220,38,38,.25)':'background:var(--rl);color:var(--red)';
+      bt=isBelow?'▼ short':'▼ SHORT';
     } else {
       bs='background:var(--s2);color:var(--t3)'; bt='⊘ NEUTRAL';
     }
     const sc=s.strength>=70?'var(--green)':s.strength>=50?'var(--ora)':s.strength>=20?'var(--blue)':'var(--t3)';
     const vf=s.high_volatility?'<span style="font-size:9px;color:var(--red);margin-left:3px">⚠️</span>':'';
-    const belowHint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Schwelle</span>`:'';
-    return `<div class="wl-row ${rc}" style="${isBelow?'opacity:.75':''}" onclick="openDetail(window._wlI[${i}])">
-      <div style="flex:1;min-width:0">
-        <div class="wn">${s.name}${vf}</div>
-        <div class="wt">${s.ticker}${belowHint}</div>
-      </div>
+    const hint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Schwelle</span>`:'';
+    window._wlI=window._wlI||[]; window._wlI[idx]=s;
+    return `<div class="wl-row ${rc}" style="${isBelow?'opacity:.7':''}" onclick="openDetail(window._wlI[${idx}])">
+      <div style="flex:1;min-width:0"><div class="wn">${s.name}${vf}</div><div class="wt">${s.ticker}${hint}</div></div>
       <div style="text-align:right">
         <div style="font-family:monospace;font-size:13px;font-weight:${isBelow?'500':'700'}">${fmt(s.price)}</div>
         <div style="font-size:10px;color:${sc};font-weight:700">${s.strength||0}/100</div>
       </div>
       <span class="badge" style="${bs};margin-left:8px;font-size:10px">${bt}</span>
     </div>`;
-  }).join('');
+  };
+
+  window._wlI=items; // globales Array für onclick
+  let html=statusHint;
+
+  // Starke Signale zuerst (über Mindest-Signalstärke)
+  if(strong.length){
+    html+=`<div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px">
+      ✅ Starke Signale – über Signalstärke-Schwelle (${strong.length})
+    </div>`;
+    html+=strong.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+  }
+
+  // Schwache Signale mit Trennlinie
+  if(weak.length && _wlFilter!=='NEUTRAL'){
+    html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid var(--b);padding-top:10px">
+      Schwache Signale – unter Signalstärke-Schwelle (${weak.length})
+    </div>`;
+    html+=weak.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+  }
+
+  // Neutrals (kein Signal)
+  if(neutral.length && _wlFilter==='NEUTRAL'){
+    html+=neutral.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+  }
+
+  // Noch nicht analysiert
+  if(pending.length){
+    html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px;border-top:1px solid var(--b);padding-top:10px">
+      Noch nicht analysiert (${pending.length})
+    </div>`;
+    html+=pending.map(s=>renderItem(s,items.indexOf(s),items)).join('');
+  }
+
+  c.innerHTML=html;
 }
 
 // ── Portfolio Backup (localStorage Fallback) ───────────────────────────────────
