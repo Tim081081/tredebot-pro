@@ -1163,74 +1163,50 @@ function saveLocalSettings(s) {
 }
 
 async function loadSettings() {
-  // 1. Sofort aus localStorage laden und anzeigen (kein Warten)
+  // Immer mit etwas rendern – nie leere Seite zeigen
   const local = getLocalSettings();
-  if (local) {
-    renderSettings(local);
-  }
+  renderSettings(local || SETTINGS_DEFAULTS);
 
-  // 2. Backend-Status prüfen
+  // Im Hintergrund Backend pingen und ggf. synchronisieren
   try {
     const res = await fetch(`${API}/api/settings`, {signal: AbortSignal.timeout(8000)});
     if (!res.ok) return;
-    const serverSettings = await res.json();
-    const isDefault = serverSettings._is_default === true;
+    const raw = await res.json();
+    const isDefault = raw._is_default === true;
+    // Internes Flag entfernen
+    const serverS = Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith('_')));
 
-    // Internes Flag entfernen bevor wir weiterarbeiten
-    const clean = Object.fromEntries(
-      Object.entries(serverSettings).filter(([k]) => !k.startsWith('_'))
-    );
-
-    if (isDefault && local) {
-      // Backend hat nur Defaults → Deploy hat Settings gelöscht
-      // Automatisch aus localStorage wiederherstellen
-      try {
-        const restore = await fetch(`${API}/api/settings/restore`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(local)
-        });
-        if (restore.ok) {
-          const restored = await restore.json();
-          const restoredClean = Object.fromEntries(
-            Object.entries(restored).filter(([k]) => !k.startsWith('_'))
-          );
-          saveLocalSettings(restoredClean);
-          renderSettings(restoredClean);
-          toast('✅ Einstellungen nach Deploy automatisch wiederhergestellt', 'ok');
-          return;
-        }
-      } catch(e) {}
-      // Restore fehlgeschlagen → localStorage-Werte direkt ans Backend schreiben
-      try {
-        await fetch(`${API}/api/settings`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(local)
-        });
-      } catch(e) {}
-      renderSettings(local);
-      return;
-    }
-
-    if (!isDefault) {
-      // Backend hat echte User-Settings
-      // localStorage hat Vorrang wenn vorhanden (evtl. neuer)
-      const merged = local ? {...clean, ...local} : clean;
+    if (isDefault) {
+      // Backend hat nur Defaults (z.B. nach Deploy)
+      if (local) {
+        // localStorage-Werte zurück ans Backend schreiben
+        try {
+          await fetch(`${API}/api/settings/restore`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(local)
+          });
+          toast('✅ Einstellungen nach Deploy wiederhergestellt', 'ok');
+        } catch(e) {}
+      }
+      // Anzeige bleibt wie sie ist (local oder DEFAULTS – bereits gerendert)
+    } else {
+      // Backend hat echte User-Settings → mit localStorage mergen
+      const merged = {...serverS, ...(local || {})};
       saveLocalSettings(merged);
       renderSettings(merged);
     }
   } catch(e) {
-    // Server schläft → localStorage bleibt aktiv
-    if (!local) renderSettings(SETTINGS_DEFAULTS);
+    // Server nicht erreichbar – bereits mit localStorage/Defaults gerendert, fertig
   }
 }
 
 function renderSettings(s) {
-  const form = document.getElementById('settings-form');
-  if (!form) return; // DOM noch nicht bereit – wird beim Tab-Öffnen erneut aufgerufen
+  // Sicherheits-Guard: s darf niemals null/undefined sein
+  if (!s || typeof s !== 'object') s = SETTINGS_DEFAULTS;
 
-  // _is_default und interne Felder ignorieren, Fallback auf DEFAULTS
+  const form = document.getElementById('settings-form');
+  if (!form) return;
+
   const v = (key, def) => {
     const val = s[key];
     return (val !== undefined && val !== null && !isNaN(Number(val))) ? val : def;
