@@ -688,41 +688,49 @@ def run_analysis(region: str, min_strength: int) -> None:
         _state[region].update({"status":"running","progress":0,"results":[],"all_results":[]})
     cfg=load_settings()
     items=list(REGIONS[region].items()); total=len(items)
-    strong_results=[]
-    all_results=[]
+    strong_results=[]; all_results=[]
 
-    for i,(name,ticker) in enumerate(items):
-        sig=quick_score(ticker,name,min_strength,cfg,include_weak=True)
-        if sig:
-            all_results.append(sig)
-            # Starke Signale: kein NEUTRAL, kein no_signal, über Schwelle
-            if (not sig.get("below_threshold",True) and
-                not sig.get("no_signal",True) and
-                sig["direction"] != "NEUTRAL"):
-                strong_results.append(sig)
-        else:
-            # Keine Daten (Ticker nicht verfügbar, yfinance-Fehler etc.)
-            # Trotzdem in all_results damit Watchlist vollständig ist
-            all_results.append({
-                "ticker":ticker,"name":name,"price":None,
-                "direction":"NEUTRAL","score":0,"strength":0,
-                "below_threshold":True,"no_signal":True,"no_data":True,
-                "signals":[],"stop_loss":None,"take_profit":None,
-                "rsi":None,"atr":None,"timestamp":datetime.now().isoformat(),
-                "support_levels":[],"resistance_levels":[],"high_volatility":False,
-                "market_phase":"—","confirming_groups":0,
-                "indicators":{},"analyst":{},"chart_data":[]
+    try:
+        for i,(name,ticker) in enumerate(items):
+            sig=quick_score(ticker,name,min_strength,cfg,include_weak=True)
+            if sig:
+                all_results.append(sig)
+                if (not sig.get("below_threshold",True) and
+                    not sig.get("no_signal",True) and
+                    sig["direction"] != "NEUTRAL"):
+                    strong_results.append(sig)
+            else:
+                all_results.append({
+                    "ticker":ticker,"name":name,"price":None,
+                    "direction":"NEUTRAL","score":0,"strength":0,
+                    "below_threshold":True,"no_signal":True,"no_data":True,
+                    "signals":[],"stop_loss":None,"take_profit":None,
+                    "rsi":None,"atr":None,"timestamp":datetime.now().isoformat(),
+                    "support_levels":[],"resistance_levels":[],"high_volatility":False,
+                    "market_phase":"—","confirming_groups":0,
+                    "indicators":{},"analyst":{},"chart_data":[]
+                })
+            if i%5==4 or i==total-1:
+                with _lock:
+                    _state[region]["progress"]=round((i+1)/total*100)
+                time.sleep(.2); gc.collect()
+
+        # Sicheres Sortieren: None-Werte als 0 behandeln
+        rs_strong=sorted(strong_results, key=lambda x: x.get("strength") or 0, reverse=True)
+        rs_all   =sorted(all_results,    key=lambda x: x.get("strength") or 0, reverse=True)
+
+    except Exception as e:
+        # Auch bei Fehler: Status auf done setzen damit die App nicht hängt
+        rs_strong=[]; rs_all=all_results
+        with _lock:
+            _state[region].update({
+                "status":"done","progress":100,
+                "results":[],"all_results":rs_all,
+                "signals_found":0,"total_analyzed":len(all_results),
+                "timestamp":datetime.now().isoformat(),
+                "error":str(e)
             })
-
-        # Nur Fortschritt aktualisieren, KEINE Zwischenergebnisse
-        # → Watchlist zeigt erst nach Abschluss Daten
-        if i%5==4 or i==total-1:
-            with _lock:
-                _state[region]["progress"]=round((i+1)/total*100)
-            time.sleep(.2); gc.collect()
-
-    rs_strong=sorted(strong_results,key=lambda x:x["strength"],reverse=True)
-    rs_all   =sorted(all_results,   key=lambda x:x["strength"],reverse=True)
+        gc.collect(); return
 
     with _lock:
         _state[region].update({
@@ -735,7 +743,6 @@ def run_analysis(region: str, min_strength: int) -> None:
             "timestamp":      datetime.now().isoformat()
         })
     gc.collect()
-    # Nach jeder Analyse Exit-Signale im Hintergrund aktualisieren
     try:
         _refresh_exit_signals_cache()
     except Exception:
