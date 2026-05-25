@@ -1130,6 +1130,18 @@ function renderExitSigs(sigs, minStrength){
     </div>`;
   }).join('');
 }
+// Öffnet Detail-Modal für Basiswert einer Portfolio-Position
+async function openPositionDetail(ticker, name, direction, strength) {
+  // Minimales Signal-Objekt zum Öffnen des Modals
+  const sig = {
+    ticker, name,
+    direction: direction || 'BUY',
+    price: null, strength: strength || 0,
+    signals: [], score: 0
+  };
+  await openDetail(sig);
+}
+
 function renderPositions(positions){
   const c=document.getElementById('positions-list');
   if(!positions.length){c.innerHTML='<div class="empty"><div class="ei">📭</div>Keine offenen Positionen</div>';return;}
@@ -1140,11 +1152,18 @@ function renderPositions(positions){
     const baseTicker=p.base_ticker||p.ticker;
     const baseEntryPrice=p.base_entry_price;
     const baseCurrentPrice=p.base_current_price;
+    // Name für Basiswert (MF-Namen haben oft " x10" Suffix)
+    const baseName = p.name.replace(/ x\d+$/,'');
 
-    // Basiswert-Block nur bei Mini-Futures
+    // Basiswert-Block nur bei Mini-Futures – klickbar für Analyse
     const baseBlock=isMF?`
-      <div style="background:var(--s1);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;border:1px solid var(--b)">
-        <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Basiswert (${baseTicker})</div>
+      <div style="background:var(--s1);border-radius:var(--rs);padding:8px 10px;margin-bottom:6px;border:1px solid var(--b);cursor:pointer"
+           onclick="event.stopPropagation();openPositionDetail('${baseTicker}','${baseName}','${p.direction==='BUY'?'SELL':'BUY'}',0)"
+           title="Basiswert analysieren">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px">Basiswert (${baseTicker})</div>
+          <span style="font-size:10px;color:var(--blue)">📈 Analyse →</span>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
           <div><div class="pgl">Einstieg Basis</div><div class="pgv">${baseEntryPrice?fmt(baseEntryPrice):'—'}</div></div>
           <div><div class="pgl">Aktuell Basis</div><div class="pgv base-cur" style="color:var(--blue)">${baseCurrentPrice?fmt(baseCurrentPrice):'—'}</div></div>
@@ -1152,7 +1171,16 @@ function renderPositions(positions){
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Derivat (MF x${p.leverage})</div>`:'';
 
-    return `<div class="pos-card"
+    // Für direkte Positionen (nicht MF): gesamte Karte ist klickbar
+    const cardClick = !isMF
+      ? `onclick="openPositionDetail('${baseTicker}','${baseName}','${p.direction}',0)"`
+      : '';
+    const clickHint = !isMF
+      ? `<div style="font-size:10px;color:var(--blue);margin-top:2px">📈 Tippen für Analyse →</div>`
+      : '';
+
+    return `<div class="pos-card" style="${!isMF?'cursor:pointer':''}"
+        ${cardClick}
         data-trade-id="${p.id}"
         data-ticker="${p.ticker}"
         data-base-ticker="${baseTicker}"
@@ -1167,6 +1195,7 @@ function renderPositions(positions){
           <div style="font-size:14px;font-weight:700">${p.name}</div>
           <span class="badge ${p.direction==='BUY'?'bb':'bs'}" style="margin-top:4px">${p.direction==='BUY'?'▲ LONG':'▼ SHORT'}${lev}</span>
           ${p.risk_pct?`<span style="font-size:10px;color:var(--t3);margin-left:6px">Risiko ${p.risk_pct}%</span>`:''}
+          ${clickHint}
         </div>
         <div style="text-align:right">
           <div class="pos-pnl" style="font-family:monospace;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${fmt(pnl)}€</div>
@@ -1174,13 +1203,14 @@ function renderPositions(positions){
         </div>
       </div>
       ${baseBlock}
-      <div class="pg">
+      <div class="pg" onclick="event.stopPropagation()">
         <div><div class="pgl">Einstieg</div><div class="pgv">${fmt(p.entry_price)}</div></div>
         <div><div class="pgl">Aktuell</div><div class="pgv pos-cur">${fmt(p.current_price)}</div></div>
         <div><div class="pgl">Stop Loss</div><div class="pgv neg">${fmt(p.stop_loss)}</div></div>
         <div><div class="pgl">Take Profit</div><div class="pgv pos">${fmt(p.take_profit)}</div></div>
       </div>
-      <button class="btn btn-sec" style="margin-top:10px;font-size:12px" onclick="closeTrade('${p.id}',${p.current_price})">
+      <button class="btn btn-sec" style="margin-top:10px;font-size:12px"
+        onclick="event.stopPropagation();closeTrade('${p.id}',${p.current_price})">
         Position schließen (${fmt(p.current_price)}€)
       </button>
     </div>`;

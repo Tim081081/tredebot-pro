@@ -423,8 +423,10 @@ def calc_position_size(cash,total,price,stop_loss,invest_amount,cfg):
 # ── Quick-Score & Analyse ─────────────────────────────────────────────────────
 def quick_score(ticker, name, min_strength, cfg, include_weak=False):
     """
-    include_weak=True: gibt auch Signale zurück die unter min_strength liegen
-    (für Watchlist-Vollansicht). Diese werden mit below_threshold=True markiert.
+    Gibt immer ein Ergebnis zurück wenn Daten vorhanden sind:
+    - Mit Signal: direction=BUY/SELL, strength>0
+    - Ohne Signal (NEUTRAL): direction=NEUTRAL, strength=0
+    Nur für Signale-Tab wird nach min_strength gefiltert.
     """
     df=fetch_ohlcv(ticker,period="6mo")
     if df is None or len(df)<60: return None
@@ -432,11 +434,33 @@ def quick_score(ticker, name, min_strength, cfg, include_weak=False):
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
         ind=compute_indicators(c,h,l,v,cfg)
-        # Für include_weak mit min_strength=0 aufrufen
-        effective_min = 0 if include_weak else min_strength
-        sig=build_signal(ticker,name,ind,effective_min,cfg)
-        if sig is None: return None
+        price=round(ind["price"],2)
+
+        # Versuche Signal zu bauen (min_strength=0 für Watchlist)
+        sig=build_signal(ticker,name,ind,0,cfg)
+
+        if sig is None:
+            # Kein klares Signal (Konfirmation nicht erfüllt) → NEUTRAL zurückgeben
+            return {
+                "ticker":ticker,"name":name,"price":price,
+                "direction":"NEUTRAL","score":0,"strength":0,
+                "below_threshold":True,"no_signal":True,
+                "confirming_groups":0,"market_phase":
+                    ("Trendmarkt" if ind["trending"] else ("Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend")),
+                "high_volatility":ind["high_vol"],
+                "signals":[],"warnings":[],
+                "stop_loss":None,"take_profit":None,
+                "rsi":round(ind["rsi"],1),"atr":round(ind["atr14"],2),
+                "support_levels":[round(ind["s1"],2),round(ind["s2"],2)],
+                "resistance_levels":[round(ind["r1"],2),round(ind["r2"],2)],
+                "indicators":{"RSI (14)":round(ind["rsi"],1),"ADX":round(ind["adx"],1),
+                    "Marktphase":"Trendmarkt" if ind["trending"] else "Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend"},
+                "analyst":{},"chart_data":[],
+                "timestamp":datetime.now().isoformat()
+            }
+
         sig["below_threshold"] = sig["strength"] < min_strength
+        sig["no_signal"] = False
         sig["indicators"]={"RSI (14)":round(ind["rsi"],1),"MACD":round(ind["mk"],4),
             "BB %B":round(ind["pb"],2),"Stoch %K":round(ind["sk"],1),
             "EMA 20":round(ind["e20"],2),"EMA 50":round(ind["e50"],2),
@@ -509,42 +533,58 @@ def run_analysis(region: str, min_strength: int) -> None:
     global _state
     with _lock:
         if _state[region].get("status")=="running": return
-        _state[region].update({"status":"running","progress":0,"results":[]})
+        _state[region].update({"status":"running","progress":0,"results":[],"all_results":[]})
     cfg=load_settings()
     items=list(REGIONS[region].items()); total=len(items)
-    strong_results=[]   # Über Schwelle → Signale-Tab
-    all_results=[]      # Alle mit Signal (inkl. schwache) → Watchlist
+    strong_results=[]
+    all_results=[]
 
     for i,(name,ticker) in enumerate(items):
-        # Immer mit include_weak=True scannen, dann filtern
         sig=quick_score(ticker,name,min_strength,cfg,include_weak=True)
         if sig:
             all_results.append(sig)
-            if not sig.get("below_threshold",False):
+            # Starke Signale: kein NEUTRAL, kein no_signal, über Schwelle
+            if (not sig.get("below_threshold",True) and
+                not sig.get("no_signal",True) and
+                sig["direction"] != "NEUTRAL"):
                 strong_results.append(sig)
 
+        # Nur Fortschritt aktualisieren, KEINE Zwischenergebnisse
+        # → Watchlist zeigt erst nach Abschluss Daten
         if i%5==4 or i==total-1:
-            rs=sorted(strong_results,key=lambda x:x["strength"],reverse=True)
             with _lock:
                 _state[region]["progress"]=round((i+1)/total*100)
-                _state[region]["results"]=rs[:15]
-            time.sleep(.3); gc.collect()
+            time.sleep(.2); gc.collect()
 
     rs_strong=sorted(strong_results,key=lambda x:x["strength"],reverse=True)
-    rs_all=sorted(all_results,key=lambda x:x["strength"],reverse=True)
+    rs_all   =sorted(all_results,   key=lambda x:x["strength"],reverse=True)
 
     with _lock:
         _state[region].update({
-            "status":"done","progress":100,
-            "results":rs_strong[:15],        # Signale-Tab: nur starke
-            "all_results":rs_all,            # Watchlist: alle mit Signal
-            "signals_found":len(strong_results),
-            "total_analyzed":total,
-            "timestamp":datetime.now().isoformat()
+            "status":         "done",
+            "progress":       100,
+            "results":        rs_strong[:20],
+            "all_results":    rs_all,
+            "signals_found":  len(strong_results),
+            "total_analyzed": total,
+            "timestamp":      datetime.now().isoformat()
         })
     gc.collect()
+    # Nach jeder Analyse Exit-Signale im Hintergrund aktualisieren
+    try:
+        _refresh_exit_signals_cache()
+    except Exception:
+        pass
 
-# ── Mini-Futures ──────────────────────────────────────────────────────────────
+# Exit-Signal-Cache (wird nach jeder Analyse befüllt)
+_exit_cache: dict = {"signals": [], "ts": 0}
+_exit_lock = Lock()
+
+def _refresh_exit_signals_cache():
+    """Berechnet Exit-Signale und speichert sie im Cache."""
+    result = _compute_exit_signals()
+    with _exit_lock:
+        _exit_cache.update({**result, "ts": time.time()})
 def calc_mini_futures(direction,price,atr):
     products=[]
     for lev in [2,3,4,5,6,8,10,12,15,18,20,22,25,28,30]:
@@ -671,11 +711,11 @@ def get_watchlist(region: str = "DE"):
     if region not in REGIONS: region="DE"
     with _lock: st=dict(_state[region])
     cfg=load_settings(); ms=cfg["min_strength"]
+    status=st.get("status","idle")
     all_results=st.get("all_results",[])
     analyzed={r["ticker"] for r in all_results}
 
-    # Noch nicht analysierte Werte: nur Platzhalter, KEIN on-the-fly quick_score
-    # (würde den Request für mehrere Minuten blockieren)
+    # Platzhalter nur für noch nicht analysierte Werte
     placeholders=[
         {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
          "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
@@ -683,14 +723,20 @@ def get_watchlist(region: str = "DE"):
         for n,t in REGIONS[region].items() if t not in analyzed
     ]
 
-    # Alle Ergebnisse zusammenführen: analysierte zuerst (nach Stärke), dann Platzhalter
-    analyzed_sorted = sorted(all_results, key=lambda x: x.get("strength",0), reverse=True)
-    items = analyzed_sorted + placeholders
+    # Kombinieren: analysierte nach Stärke, dann Platzhalter
+    analyzed_sorted=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)
+    items=analyzed_sorted+placeholders
 
-    return {"status":st["status"],"items":items,"total":len(items),
-            "region":region,"min_strength":ms,
-            "analyzed_count":len(analyzed_sorted),
-            "pending_count":len(placeholders)}
+    return {
+        "status":          status,
+        "items":           items,
+        "total":           len(REGIONS[region]),
+        "analyzed_count":  len(analyzed_sorted),
+        "pending_count":   len(placeholders),
+        "region":          region,
+        "min_strength":    ms,
+        "is_complete":     len(placeholders)==0 and status=="done"
+    }
 
 @app.get("/api/portfolio/backup")
 def backup_ep(): return load_portfolio()
@@ -902,51 +948,130 @@ def close_trade(req: CloseRequest):
     invalidate_portfolio_cache(); save_portfolio(p); _price_cache.pop(pos["ticker"],None)
     return {"success":True,"trade":closed}
 
-@app.get("/api/exit-signals")
-def get_exit_signals():
-    p=load_portfolio(); positions=p.get("positions",[])
-    if not positions: return {"exit_signals":[],"checked":0}
-    signals=[]
+def _compute_exit_signals() -> dict:
+    """
+    Vollständige Exit-Signal-Berechnung.
+    Exit NUR wenn build_signal() ein echtes Gegensignal mit ausreichender Stärke liefert.
+    SL/TP-Verletzungen werden immer gemeldet.
+    """
+    p = load_portfolio()
+    positions = p.get("positions", [])
+    if not positions:
+        return {"exit_signals": [], "checked": 0, "exit_min_strength": 15}
+
+    cfg = load_settings()
+    exit_min_strength = max(15, cfg["min_strength"] // 2)
+    signals = []
+
     for pos in positions:
         try:
-            ticker=pos["ticker"]; df=fetch_ohlcv(ticker,period="1mo")
-            if df is None or len(df)<10: continue
-            c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
-            price=float(c.iloc[-1])
-            delta=c.diff(); g=delta.clip(lower=0).rolling(14).mean()
-            ls=(-delta.clip(upper=0)).rolling(14).mean().replace(0,np.nan)
-            r=float((100-100/(1+g/ls)).iloc[-1])
-            e12=c.ewm(span=12,adjust=False).mean(); e26=c.ewm(span=26,adjust=False).mean()
-            m=e12-e26; s_=m.ewm(span=9,adjust=False).mean(); hs=m-s_
-            mk,ms=float(m.iloc[-1]),float(s_.iloc[-1]); mh,mhp=float(hs.iloc[-1]),float(hs.iloc[-2])
-            stk=100*(c-l.rolling(14).min())/(h.rolling(14).max()-l.rolling(14).min()).replace(0,np.nan)
-            sk,sd=float(stk.iloc[-1]),float(stk.rolling(3).mean().iloc[-1])
-            entry,sl,tp,direction=pos["entry_price"],pos["stop_loss"],pos["take_profit"],pos["direction"]
-            if direction=="BUY":
-                pp=(price-entry)/entry*100; sld=(price-sl)/entry*100; tpd=(tp-price)/entry*100
+            base_ticker = pos.get("base_ticker") or pos["ticker"].split()[0]
+            if base_ticker not in VALID_TICKERS:
+                base_ticker = pos["ticker"].split()[0]
+            name      = TICKER_TO_NAME.get(base_ticker, pos["name"])
+            entry     = pos["entry_price"]
+            sl        = pos["stop_loss"]
+            tp        = pos["take_profit"]
+            direction = pos["direction"]
+
+            # Aktuellen Kurs holen
+            df5 = fetch_ohlcv(base_ticker, period="5d", timeout=8)
+            if df5 is None or df5.empty: continue
+            price = round(float(df5["Close"].iloc[-1]), 2)
+
+            # P&L und SL/TP-Abstände
+            if direction == "BUY":
+                pp  = (price - entry) / entry * 100
+                sld = (price - sl) / entry * 100
+                tpd = (tp - price) / entry * 100
             else:
-                pp=(entry-price)/entry*100; sld=(sl-price)/entry*100; tpd=(price-tp)/entry*100
-            reasons=[]; urgency="normal"
-            if tpd<=0: reasons.append("✅ Take Profit erreicht!"); urgency="urgent"
-            elif sld<=0: reasons.append("🛑 Stop Loss durchbrochen!"); urgency="urgent"
-            elif sld<20: reasons.append(f"⚠️ Nahe Stop Loss ({sld:.1f}%)"); urgency="warn"
-            if direction=="BUY":
-                if r>70: reasons.append(f"RSI überkauft ({r:.0f})")
-                if mk<ms and mh<mhp: reasons.append("MACD dreht negativ")
-                if sk>80 and sk<sd: reasons.append("Stochastik dreht runter")
-            else:
-                if r<30: reasons.append(f"RSI überverkauft ({r:.0f})")
-                if mk>ms and mh>mhp: reasons.append("MACD dreht positiv")
-                if sk<20 and sk>sd: reasons.append("Stochastik dreht hoch")
-            if reasons:
-                signals.append({"trade_id":pos["id"],"ticker":ticker,"name":pos["name"],
-                    "direction":direction,"entry_price":entry,"current_price":round(price,2),
+                pp  = (entry - price) / entry * 100
+                sld = (sl - price) / entry * 100
+                tpd = (price - tp) / entry * 100
+
+            # SL/TP-Verletzungen → immer sofort melden
+            if tpd <= 0:
+                signals.append({"trade_id":pos["id"],"ticker":base_ticker,"name":pos["name"],
+                    "direction":direction,"entry_price":entry,"current_price":price,
                     "pnl_pct":round(pp,2),"stop_loss":sl,"take_profit":tp,
-                    "exit_reasons":reasons,"urgency":urgency,
-                    "recommendation":"SCHLIESSEN" if urgency=="urgent" else "PRÜFEN"})
-        except Exception: continue
-    signals.sort(key=lambda x:{"urgent":0,"warn":1,"normal":2}.get(x["urgency"],2))
-    return {"exit_signals":signals,"checked":len(positions)}
+                    "exit_reasons":["✅ Take Profit erreicht!"],"urgency":"urgent",
+                    "recommendation":"SCHLIESSEN","exit_strength":None})
+                continue
+            if sld <= 0:
+                signals.append({"trade_id":pos["id"],"ticker":base_ticker,"name":pos["name"],
+                    "direction":direction,"entry_price":entry,"current_price":price,
+                    "pnl_pct":round(pp,2),"stop_loss":sl,"take_profit":tp,
+                    "exit_reasons":["🛑 Stop Loss durchbrochen!"],"urgency":"urgent",
+                    "recommendation":"SCHLIESSEN","exit_strength":None})
+                continue
+
+            # Vollständige Signalanalyse des Basiswerts
+            df6 = fetch_ohlcv(base_ticker, period="6mo")
+            if df6 is None or len(df6) < 60: continue
+            c = df6["Close"].squeeze(); h = df6["High"].squeeze(); l = df6["Low"].squeeze()
+            v = df6["Volume"].squeeze() if "Volume" in df6.columns else pd.Series(np.ones(len(c)), index=c.index)
+            ind = compute_indicators(c, h, l, v, cfg)
+            sig = build_signal(base_ticker, name, ind, min_strength=0, cfg=cfg)
+
+            if sig is None: continue  # Keine klare Richtung → kein Exit
+
+            sig_direction = sig["direction"]
+            sig_strength  = sig["strength"]
+
+            # Nur Gegensignal ist Exit-relevant
+            is_counter = (direction=="BUY" and sig_direction=="SELL") or \
+                         (direction=="SELL" and sig_direction=="BUY")
+            if not is_counter: continue
+            if sig_strength < exit_min_strength: continue
+
+            reason_word = "VERKAUFEN" if direction=="BUY" else "KAUFEN"
+            reasons = [
+                f"📊 Analyse empfiehlt {reason_word} (Signalstärke {sig_strength}/100)",
+                f"✓ {sig['confirming_groups']}/3 Gruppen bestätigen · {sig['market_phase']}",
+            ]
+            for sg in (sig.get("signals") or [])[:3]:
+                if not sg.startswith("⚠️"):
+                    reasons.append(sg)
+
+            signals.append({
+                "trade_id":      pos["id"],
+                "ticker":        base_ticker,
+                "name":          pos["name"],
+                "direction":     direction,
+                "entry_price":   entry,
+                "current_price": price,
+                "pnl_pct":       round(pp, 2),
+                "stop_loss":     sl,
+                "take_profit":   tp,
+                "exit_reasons":  reasons,
+                "urgency":       "warn",
+                "recommendation":"SCHLIESSEN",
+                "exit_strength": sig_strength,
+            })
+        except Exception:
+            continue
+
+    signals.sort(key=lambda x: {"urgent":0,"warn":1}.get(x.get("urgency","warn"), 1))
+    return {"exit_signals": signals, "checked": len(positions),
+            "exit_min_strength": exit_min_strength}
+
+
+@app.get("/api/exit-signals")
+def get_exit_signals_ep():
+    """Gecachte Exit-Signale – werden nach jeder Analyse automatisch aktualisiert."""
+    with _exit_lock:
+        age = time.time() - _exit_cache.get("ts", 0)
+        sigs = list(_exit_cache.get("signals", []))
+        ms   = _exit_cache.get("exit_min_strength", 15)
+
+    if age < 600 and _exit_cache.get("ts", 0) > 0:
+        return {"exit_signals": sigs, "checked": _exit_cache.get("checked", 0),
+                "exit_min_strength": ms, "cached": True}
+    # Cache leer oder veraltet → live berechnen
+    result = _compute_exit_signals()
+    with _exit_lock:
+        _exit_cache.update({**result, "ts": time.time()})
+    return result
 
 @app.get("/",response_class=HTMLResponse)
 def frontend():
