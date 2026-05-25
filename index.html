@@ -1174,11 +1174,16 @@ async function loadSettings() {
     const res = await fetch(`${API}/api/settings`, {signal: AbortSignal.timeout(8000)});
     if (!res.ok) return;
     const serverSettings = await res.json();
+    const isDefault = serverSettings._is_default === true;
 
-    if (serverSettings._is_default && local) {
+    // Internes Flag entfernen bevor wir weiterarbeiten
+    const clean = Object.fromEntries(
+      Object.entries(serverSettings).filter(([k]) => !k.startsWith('_'))
+    );
+
+    if (isDefault && local) {
       // Backend hat nur Defaults → Deploy hat Settings gelöscht
       // Automatisch aus localStorage wiederherstellen
-      console.log('[Settings] Backend hat Defaults erkannt, stelle aus localStorage wieder her…');
       try {
         const restore = await fetch(`${API}/api/settings/restore`, {
           method: 'POST',
@@ -1187,38 +1192,48 @@ async function loadSettings() {
         });
         if (restore.ok) {
           const restored = await restore.json();
-          saveLocalSettings(restored);
-          renderSettings(restored);
-          toast('✅ Einstellungen nach Deploy automatisch wiederhergestellt','ok');
+          const restoredClean = Object.fromEntries(
+            Object.entries(restored).filter(([k]) => !k.startsWith('_'))
+          );
+          saveLocalSettings(restoredClean);
+          renderSettings(restoredClean);
+          toast('✅ Einstellungen nach Deploy automatisch wiederhergestellt', 'ok');
           return;
         }
       } catch(e) {}
+      // Restore fehlgeschlagen → localStorage-Werte direkt ans Backend schreiben
+      try {
+        await fetch(`${API}/api/settings`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(local)
+        });
+      } catch(e) {}
+      renderSettings(local);
+      return;
     }
 
-    // Backend hat echte User-Settings → als Referenz verwenden
-    if (!serverSettings._is_default) {
-      // Merge: localStorage hat Vorrang bei Konflikten (neuer)
-      const merged = {...serverSettings, ...(local||{})};
+    if (!isDefault) {
+      // Backend hat echte User-Settings
+      // localStorage hat Vorrang wenn vorhanden (evtl. neuer)
+      const merged = local ? {...clean, ...local} : clean;
       saveLocalSettings(merged);
       renderSettings(merged);
-      // Merged-Version ans Backend schreiben
-      fetch(`${API}/api/settings`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(merged)
-      }).catch(()=>{});
     }
   } catch(e) {
-    // Server schläft → localStorage bleibt aktiv, kein Problem
+    // Server schläft → localStorage bleibt aktiv
     if (!local) renderSettings(SETTINGS_DEFAULTS);
   }
 }
 
 function renderSettings(s) {
+  const form = document.getElementById('settings-form');
+  if (!form) return; // DOM noch nicht bereit – wird beim Tab-Öffnen erneut aufgerufen
+
   // _is_default und interne Felder ignorieren, Fallback auf DEFAULTS
   const v = (key, def) => {
     const val = s[key];
-    return (val !== undefined && val !== null && !isNaN(val)) ? val : def;
+    return (val !== undefined && val !== null && !isNaN(Number(val))) ? val : def;
   };
   document.getElementById('settings-form').innerHTML=`
   <div class="set-sec">Trading-Parameter</div>
@@ -1452,21 +1467,18 @@ window.addEventListener('beforeunload',()=>{if(window._currentSigs?.length)markS
 window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(window._currentSigs);});
 
 // ── Init ─────────────────────────────────────────────────────────────────────
-// Settings SOFORT aus localStorage laden – noch bevor der Server antwortet
+// Settings sofort aus localStorage in den Speicher laden (noch kein Rendern –
+// das DOM ist noch nicht vollständig bereit)
 (function initSettingsEarly(){
   const local = getLocalSettings();
-  if (local) {
-    window._cachedSettings = local;
-    // Settings-Tab vorrendern falls er bereits aktiv sein sollte
-    const form = document.getElementById('settings-form');
-    if (form) renderSettings(local);
-  }
+  if (local) window._cachedSettings = local;
 })();
 
 // Signale-Status laden (kein Auto-Start)
 loadSignals();
 
 // Settings laden + ggf. automatisch nach Deploy wiederherstellen
+// (DOM ist jetzt bereit, da Script am Ende des Body)
 loadSettings();
 
 // Portfolio nach kurzem Delay wiederherstellen (Server braucht Startzeit)
