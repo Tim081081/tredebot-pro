@@ -726,6 +726,94 @@ function showInfo(key){
   </div>`;
 }
 
+// Ampel-Logik: gibt {color, label, hint} zurück basierend auf Indikator + Wert
+function indAmpel(key, raw) {
+  const v = parseFloat(raw);
+  const s = String(raw);
+  // Hilfsfunktionen
+  const buy  = (hint='Kaufsignal')  => ({c:'#16a34a', bg:'rgba(22,163,74,.12)',  t:'🟢', label:'LONG',    hint});
+  const sell = (hint='Verkaufssignal') => ({c:'#dc2626', bg:'rgba(220,38,38,.12)',  t:'🔴', label:'SHORT',   hint});
+  const warn = (hint='Vorsicht')    => ({c:'#d97706', bg:'rgba(217,119,6,.12)',  t:'🟡', label:'SCHWACH',  hint});
+  const neu  = (hint='Neutral')     => ({c:'#94a3b8', bg:'rgba(148,163,184,.1)', t:'⚪', label:'NEUTRAL',  hint});
+
+  switch(key) {
+    case 'RSI (14)':
+      if(v<30)  return buy(`Stark überverkauft – Grenze: < 30 (aktuell ${v})`);
+      if(v<40)  return warn(`Leicht überverkauft – Grenze: < 40 (aktuell ${v})`);
+      if(v>70)  return sell(`Stark überkauft – Grenze: > 70 (aktuell ${v})`);
+      if(v>60)  return warn(`Leicht überkauft – Grenze: > 60 (aktuell ${v})`);
+      return neu(`Neutral – Bereich: 40–60 (aktuell ${v})`);
+
+    case 'MACD':
+    case 'MACD Signal':
+      // Wird in Score-Kombination bewertet – hier nur Vorzeichen
+      if(isNaN(v)) return neu();
+      return v>0 ? warn(`Positiv – kein Einzelsignal, nur im Kontext zur Signallinie`) : warn(`Negativ – kein Einzelsignal, nur im Kontext zur Signallinie`);
+
+    case 'BB %B':
+      if(v<0.05) return buy(`Am unteren Band – Grenze: < 0.05 (aktuell ${v})`);
+      if(v<0.2)  return warn(`Nahe unterem Band – Grenze: < 0.20 (aktuell ${v})`);
+      if(v>0.95) return sell(`Am oberen Band – Grenze: > 0.95 (aktuell ${v})`);
+      if(v>0.8)  return warn(`Nahe oberem Band – Grenze: > 0.80 (aktuell ${v})`);
+      return neu(`Mitte der Bänder (aktuell ${v})`);
+
+    case 'Stoch %K':
+      if(v<20) return buy(`Überverkauft – Grenze: < 20 (aktuell ${v})`);
+      if(v>80) return sell(`Überkauft – Grenze: > 80 (aktuell ${v})`);
+      return neu(`Neutral – Bereich: 20–80 (aktuell ${v})`);
+
+    case 'Williams %R':
+      if(v<-80) return buy(`Überverkauft – Grenze: < -80 (aktuell ${v})`);
+      if(v>-20) return sell(`Überkauft – Grenze: > -20 (aktuell ${v})`);
+      return neu(`Neutral – Bereich: -80 bis -20 (aktuell ${v})`);
+
+    case 'CCI (20)':
+      if(v<-100) return buy(`Überverkauft – Grenze: < -100 (aktuell ${v})`);
+      if(v>100)  return sell(`Überkauft – Grenze: > +100 (aktuell ${v})`);
+      return neu(`Neutral – Bereich: -100 bis +100 (aktuell ${v})`);
+
+    case 'ADX':
+      if(v>=25) return warn(`Starker Trend – Grenze: ≥ 25 (aktuell ${v}) – Trendfolger aktiv`);
+      if(v>=20) return neu(`Trend entsteht – Bereich: 20–25 (aktuell ${v})`);
+      return neu(`Seitwärtsmarkt – Grenze: < 20 (aktuell ${v}) – Trendfolger deaktiviert`);
+
+    case 'EMA 20': case 'EMA 50': case 'EMA 100': case 'EMA 200':
+      return neu('Referenzwert – Signal entsteht durch Verhältnis zum Kurs');
+
+    case 'OBV Trend':
+      if(s==='Bullisch') return buy('OBV steigt – Kaufvolumen dominiert');
+      return sell('OBV fällt – Verkaufsvolumen dominiert');
+
+    case 'ATR %':
+      const atrNum = parseFloat(s);
+      if(atrNum>5) return sell(`Sehr hoch – Grenze: > 5% (aktuell ${s}) – Score halbiert!`);
+      if(atrNum>3) return warn(`Erhöht – Grenze: > 3% (aktuell ${s})`);
+      return buy(`Normal/Niedrig – Grenze: < 3% (aktuell ${s})`);
+
+    case '52W Position':
+      const pct = parseFloat(s);
+      if(pct<15) return buy(`Nahe Jahrestief – Grenze: < 15% (aktuell ${pct}%)`);
+      if(pct>85) return sell(`Nahe Jahreshoch – Grenze: > 85% (aktuell ${pct}%)`);
+      return neu(`Mittelfeld – Bereich: 15–85% (aktuell ${pct}%)`);
+
+    case 'ROC (10)':
+      const roc = parseFloat(s);
+      if(roc<-5) return buy(`Stark gefallen – Grenze: < -5% (aktuell ${roc}%)`);
+      if(roc>5)  return sell(`Stark gestiegen – Grenze: > +5% (aktuell ${roc}%)`);
+      return neu(`Moderates Momentum (aktuell ${roc}%)`);
+
+    case 'Marktphase':
+      if(s.includes('Trend')) return warn('Trendmarkt – Trendfolger gewichtet, Oszillatoren gedämpft');
+      if(s.includes('Seit'))  return neu('Seitwärtsmarkt – nur Oszillatoren aktiv');
+      return neu('Übergangsphase');
+
+    case '⚠️ Volatilität':
+      return sell('Hohe Volatilität – erhöhtes Risiko, Score reduziert');
+
+    default: return null;
+  }
+}
+
 function renderIndicators(d){
   const ind=d.indicators||{};
   document.getElementById('vbox').innerHTML=d.high_volatility?
@@ -736,9 +824,18 @@ function renderIndicators(d){
   document.getElementById('ind-body').innerHTML=filtered.map(([k,v])=>{
     const isW=k.includes('⚠️')||String(v).includes('ERHÖHT');
     const hasI=!!IND[k];
+    const ampel=indAmpel(k,v);
+    const ampelHtml=ampel?`<span title="${ampel.hint}" style="display:inline-flex;align-items:center;gap:3px;background:${ampel.bg};color:${ampel.c};font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px;cursor:help;white-space:nowrap">${ampel.t} ${ampel.label}</span>`:'';
+    const hintHtml=ampel?`<div style="font-size:10px;color:var(--t3);margin-top:2px;padding-left:1px">${ampel.hint}</div>`:'';
     return `<tr${isW?' style="background:rgba(220,38,38,.04)"':''}>
-      <td style="color:var(--t2)">${k}${hasI?`<button class="ibtn2" onclick="showInfo('${k}')">i</button>`:''}</td>
-      <td style="font-family:monospace;text-align:right;color:${isW?'var(--red)':'var(--text)'}">${v}</td></tr>`;
+      <td style="color:var(--t2);vertical-align:top;padding-top:8px">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px">
+          ${k}${hasI?`<button class="ibtn2" onclick="showInfo('${k}')">i</button>`:''}
+          ${ampelHtml}
+        </div>
+        ${hintHtml}
+      </td>
+      <td style="font-family:monospace;text-align:right;vertical-align:top;padding-top:8px;color:${isW?'var(--red)':ampel?ampel.c:'var(--text)'};font-weight:${ampel&&ampel.label!=='NEUTRAL'?'700':'400'}">${v}</td></tr>`;
   }).join('');
   const sd=d.score_detail;
   document.getElementById('sd-box').innerHTML=sd?`
@@ -925,8 +1022,34 @@ async function updateLivePrices(){
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
+// Doppelte Persistenz: Server (primär) + localStorage (Fallback/Sofortanzeige)
+// → Settings bleiben bei Region-Wechsel, Server-Neustart und Offline erhalten
+
+const SETTINGS_LS_KEY = 'tb_settings_v2';
+
+function getLocalSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_LS_KEY)||'null'); } catch(e){ return null; }
+}
+function saveLocalSettings(s) {
+  try { localStorage.setItem(SETTINGS_LS_KEY, JSON.stringify(s)); } catch(e){}
+}
+
 async function loadSettings(){
-  try{const res=await fetch(`${API}/api/settings`);const s=await res.json();renderSettings(s);}catch(e){}
+  // 1. Sofort aus localStorage anzeigen – kein Warten auf Server
+  const local = getLocalSettings();
+  if (local) renderSettings(local);
+
+  // 2. Server-Werte nachladen und synchronisieren
+  try{
+    const res=await fetch(`${API}/api/settings`,{signal:AbortSignal.timeout(6000)});
+    if(!res.ok) return;
+    const s=await res.json();
+    saveLocalSettings(s);  // Server → localStorage sync
+    renderSettings(s);
+  }catch(e){
+    // Server schläft / nicht erreichbar → localStorage bleibt aktiv
+    if(!local) renderSettings({});
+  }
 }
 function renderSettings(s){
   document.getElementById('settings-form').innerHTML=`
@@ -969,12 +1092,19 @@ async function saveSettings(){
     max_exposure:gi('s-maxexp'),risk_per_trade:g('s-risk'),max_position:g('s-maxp'),
     min_sl_dist:g('s-minsl'),max_sl_dist:g('s-maxsl'),vol_threshold:g('s-vol'),
     adx_trend:gi('s-adxt'),adx_sideways:gi('s-adxs'),start_capital:g('s-start')};
+  // Sofort in localStorage sichern – unabhängig vom Server-Ergebnis
+  saveLocalSettings(payload);
   try{
     const res=await fetch(`${API}/api/settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
-    if(res.ok){toast('✅ Einstellungen gespeichert – neue Analyse startet','ok');setTimeout(loadSignals,800);}
-    else toast(`❌ ${d.detail}`,'err');
-  }catch(e){toast('Fehler','err');}
+    if(res.ok){
+      saveLocalSettings(d);  // Server-Antwort (ggf. korrigiert) als Master
+      toast('✅ Einstellungen gespeichert – neue Analyse startet','ok');
+      setTimeout(loadSignals,800);
+    } else toast(`❌ ${d.detail}`,'err');
+  }catch(e){
+    toast('⚠️ Server nicht erreichbar – lokal gespeichert','warn');
+  }
 }
 async function resetPortfolio(){
   if(!confirm('Portfolio wirklich zurücksetzen?'))return;
@@ -1064,8 +1194,17 @@ window.addEventListener('beforeunload',()=>{if(window._currentSigs?.length)markS
 window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(window._currentSigs);});
 
 // Init
+// Settings sofort aus localStorage laden (falls vorhanden) – kein Warten auf Server
+(function initSettingsEarly(){
+  const local = getLocalSettings();
+  if (local) {
+    // Min. Signalstärke sofort im Speicher halten, damit Analyse mit korrektem Wert startet
+    window._cachedSettings = local;
+  }
+})();
+
 loadSignals();
-loadSettings();
+loadSettings();   // lädt zusätzlich im Hintergrund vom Server
 setTimeout(restoreP,3000);
 </script>
 </body>
