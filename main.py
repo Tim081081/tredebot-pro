@@ -50,61 +50,213 @@ DETAIL_CACHE_TTL = 600
 CHART_CACHE_TTL  = 600
 DF_CACHE_MAX     = 300
 
-# ── Regionale Ticker ──────────────────────────────────────────────────────────
+# ── Regionale Ticker (aktualisiert Mai 2025) ──────────────────────────────────
+# Entfernt: Software AG (SOW.DE) – von OpenText übernommen, dekotiert
+#           Zooplus (ZO1.DE) – 2022 von Börse genommen
+#           Xing (O1BC.DE) – falscher Ticker, korrekt: NWX.DE (New Work SE)
+#           PTC Inc (PTC.DE) – XETRA illiquid, kaum Daten
+#           Reply (REY.DE) – XETRA illiquid
+#           Snowflake/Datadog/MongoDB/Fortinet – aus NASDAQ entfernt da volatil/illiquid
+# Hinzugefügt: Porsche SE (PAH3.DE), New Work SE (NWX.DE), MDAX-Werte,
+#              Vollständiger Dow Jones 30 (Nike, McDonald's, Sherwin-Williams etc.)
+#              Weitere NASDAQ-100-Kernwerte
 REGIONS = {
     "DE": {
-        # DAX 40
-        "DAX Index":"^GDAXI","Adidas":"ADS.DE","Airbus":"AIR.DE","Allianz":"ALV.DE",
-        "BASF":"BAS.DE","Bayer":"BAYN.DE","Beiersdorf":"BEI.DE","BMW":"BMW.DE",
-        "Brenntag":"BNR.DE","Continental":"CON.DE","Covestro":"1COV.DE",
-        "Deutsche Post":"DHL.DE","Telekom":"DTE.DE","EON":"EOAN.DE",
-        "Fresenius Med":"FME.DE","Fresenius":"FRE.DE","Heidelberg Mat":"HEI.DE",
-        "Henkel":"HEN3.DE","Infineon":"IFX.DE","Linde":"LIN.DE","Mercedes":"MBG.DE",
-        "Merck":"MRK.DE","MTU Aero":"MTX.DE","Munich Re":"MUV2.DE","Porsche AG":"P911.DE",
-        "Qiagen":"QIA.DE","Rheinmetall":"RHM.DE","RWE":"RWE.DE","SAP":"SAP.DE",
-        "Siemens Health":"SHL.DE","Siemens":"SIE.DE","Symrise":"SY1.DE","VW":"VOW3.DE",
-        "Vonovia":"VNA.DE","Zalando":"ZAL.DE","Deutsche Bank":"DBK.DE","Commerzbank":"CBK.DE",
-        "Hannover Rueck":"HNR1.DE","Sartorius":"SRT3.DE",
-        # TechDAX
-        "AIXTRON":"AIXA.DE","Cancom":"COK.DE","CompuGroup":"COP.DE","Drägerwerk":"DRW3.DE",
-        "Energiekontor":"EKT.DE","Evotec":"EVT.DE","GFT Technologies":"GFT.DE",
-        "Jenoptik":"JEN.DE","LPKF Laser":"LPK.DE","Nemetschek":"NEM.DE",
-        "PTC Inc":"PTC.DE","Reply":"REY.DE","Siemens Energy":"ENR.DE",
-        "Software AG":"SOW.DE","TeamViewer":"TMV.DE","TUI":"TUI1.DE",
-        "United Internet":"UTDI.DE","Wacker Chemie":"WCH.DE","Xing":"O1BC.DE",
-        "Zooplus":"ZO1.DE",
+        # Index
+        "DAX Index":        "^GDAXI",
+        # DAX 40 (vollständig)
+        "Adidas":           "ADS.DE",
+        "Airbus":           "AIR.DE",
+        "Allianz":          "ALV.DE",
+        "BASF":             "BAS.DE",
+        "Bayer":            "BAYN.DE",
+        "Beiersdorf":       "BEI.DE",
+        "BMW":              "BMW.DE",
+        "Brenntag":         "BNR.DE",
+        "Commerzbank":      "CBK.DE",
+        "Continental":      "CON.DE",
+        "Covestro":         "1COV.DE",
+        "Deutsche Bank":    "DBK.DE",
+        "Deutsche Post":    "DHL.DE",
+        "Telekom":          "DTE.DE",
+        "EON":              "EOAN.DE",
+        "Fresenius Med":    "FME.DE",
+        "Fresenius":        "FRE.DE",
+        "Hannover Rueck":   "HNR1.DE",
+        "Heidelberg Mat":   "HEI.DE",
+        "Henkel":           "HEN3.DE",
+        "Infineon":         "IFX.DE",
+        "Linde":            "LIN.DE",
+        "Mercedes":         "MBG.DE",
+        "Merck":            "MRK.DE",
+        "MTU Aero":         "MTX.DE",
+        "Munich Re":        "MUV2.DE",
+        "Porsche AG":       "P911.DE",
+        "Porsche SE":       "PAH3.DE",
+        "Qiagen":           "QIA.DE",
+        "Rheinmetall":      "RHM.DE",
+        "RWE":              "RWE.DE",
+        "SAP":              "SAP.DE",
+        "Sartorius":        "SRT3.DE",
+        "Siemens":          "SIE.DE",
+        "Siemens Energy":   "ENR.DE",
+        "Siemens Health":   "SHL.DE",
+        "Symrise":          "SY1.DE",
+        "VW":               "VOW3.DE",
+        "Vonovia":          "VNA.DE",
+        "Zalando":          "ZAL.DE",
+        # TechDAX (bereinigt – nur aktive, liquide XETRA-Ticker)
+        "AIXTRON":          "AIXA.DE",
+        "Cancom":           "COK.DE",
+        "CompuGroup Med":   "COP.DE",
+        "Drägerwerk":       "DRW3.DE",
+        "Energiekontor":    "EKT.DE",
+        "Evotec":           "EVT.DE",
+        "GFT Technologies": "GFT.DE",
+        "Jenoptik":         "JEN.DE",
+        "LPKF Laser":       "LPK.DE",
+        "Nemetschek":       "NEM.DE",
+        "New Work SE":      "NWX.DE",
+        "TeamViewer":       "TMV.DE",
+        "TUI":              "TUI1.DE",
+        "United Internet":  "UTDI.DE",
+        "Wacker Chemie":    "WCH.DE",
+        # MDAX-Ergänzungen (liquideste Werte)
+        "Aurubis":          "NDA.DE",
+        "Knorr-Bremse":     "KBX.DE",
+        "LEG Immobilien":   "LEG.DE",
+        "Scout24":          "G24.DE",
+        "Talanx":           "TLX.DE",
+        "Traton":           "8TRA.DE",
     },
     "EU": {
-        "Euro Stoxx 50":"^STOXX50E","FTSE 100":"^FTSE","CAC 40":"^FCHI",
-        "IBEX 35":"^IBEX","AEX":"^AEX","SMI":"^SSMI",
-        "ASML":"ASML.AS","ING":"INGA.AS","Ahold":"AD.AS","Philips":"PHIA.AS",
-        "LVMH":"MC.PA","LOreal":"OR.PA","TotalEnergies":"TTE.PA","Sanofi":"SAN.PA",
-        "BNP Paribas":"BNP.PA","Kering":"KER.PA","Airbus FR":"AIR.PA","Danone":"BN.PA",
-        "Stellantis":"STLAM.MI","Santander":"SAN.MC","BBVA":"BBVA.MC","Inditex":"ITX.MC",
-        "Nestle":"NESN.SW","Roche":"ROG.SW","Novartis":"NOVN.SW","ABB":"ABBN.SW",
-        "AstraZeneca":"AZN.L","HSBC":"HSBA.L","BP":"BP.L","Shell":"SHEL.L",
-        "GSK":"GSK.L","Unilever":"ULVR.L","Diageo":"DGE.L","Rio Tinto":"RIO.L",
-        "Enel":"ENEL.MI","ENI":"ENI.MI","UniCredit":"UCG.MI","STMicro":"STM.MI",
+        # Indizes
+        "Euro Stoxx 50":    "^STOXX50E",
+        "FTSE 100":         "^FTSE",
+        "CAC 40":           "^FCHI",
+        "IBEX 35":          "^IBEX",
+        "AEX":              "^AEX",
+        "SMI":              "^SSMI",
+        # Niederlande
+        "ASML":             "ASML.AS",
+        "ING":              "INGA.AS",
+        "Ahold Delhaize":   "AD.AS",
+        "Philips":          "PHIA.AS",
+        "RELX":             "REN.AS",
+        "Wolters Kluwer":   "WKL.AS",
+        # Frankreich
+        "LVMH":             "MC.PA",
+        "LOreal":           "OR.PA",
+        "TotalEnergies":    "TTE.PA",
+        "Sanofi":           "SAN.PA",
+        "BNP Paribas":      "BNP.PA",
+        "Kering":           "KER.PA",
+        "Airbus FR":        "AIR.PA",
+        "Danone":           "BN.PA",
+        "Hermes":           "RMS.PA",
+        "Air Liquide":      "AI.PA",
+        "Schneider El.":    "SU.PA",
+        # Spanien
+        "Santander":        "SAN.MC",
+        "BBVA":             "BBVA.MC",
+        "Inditex":          "ITX.MC",
+        "Iberdrola":        "IBE.MC",
+        # Schweiz
+        "Nestle":           "NESN.SW",
+        "Roche":            "ROG.SW",
+        "Novartis":         "NOVN.SW",
+        "ABB":              "ABBN.SW",
+        "Zurich Ins.":      "ZURN.SW",
+        "Richemont":        "CFR.SW",
+        # UK
+        "AstraZeneca":      "AZN.L",
+        "HSBC":             "HSBA.L",
+        "BP":               "BP.L",
+        "Shell":            "SHEL.L",
+        "GSK":              "GSK.L",
+        "Unilever":         "ULVR.L",
+        "Diageo":           "DGE.L",
+        "Rio Tinto":        "RIO.L",
+        "BHP":              "BHP.L",
+        "Barclays":         "BARC.L",
+        "Rolls-Royce":      "RR.L",
+        "BAE Systems":      "BA.L",
+        # Italien
+        "Enel":             "ENEL.MI",
+        "ENI":              "ENI.MI",
+        "UniCredit":        "UCG.MI",
+        "STMicro":          "STM.MI",
+        "Intesa Sanpaolo":  "ISP.MI",
+        "Ferrari":          "RACE.MI",
+        "Stellantis":       "STLAM.MI",
     },
     "USA": {
-        # Dow Jones 30
-        "Dow Jones":"^DJI","S&P 500":"^GSPC","NASDAQ":"^IXIC",
-        "Apple":"AAPL","Microsoft":"MSFT","Amazon":"AMZN","Alphabet":"GOOGL",
-        "Meta":"META","Nvidia":"NVDA","Berkshire":"BRK-B","JPMorgan":"JPM",
-        "Johnson & Johnson":"JNJ","Visa":"V","Mastercard":"MA","Exxon Mobil":"XOM",
-        "UnitedHealth":"UNH","Procter & Gamble":"PG","Home Depot":"HD","Walmart":"WMT",
-        "Chevron":"CVX","Coca-Cola":"KO","Disney":"DIS","IBM":"IBM",
-        "Goldman Sachs":"GS","American Express":"AXP","Caterpillar":"CAT",
-        "Boeing":"BA","3M":"MMM","Honeywell":"HON","Merck US":"MRK",
-        "Salesforce":"CRM","Intel":"INTC","Cisco":"CSCO","Verizon":"VZ",
-        # NASDAQ 100 weitere
-        "Tesla":"TSLA","Adobe":"ADBE","Netflix":"NFLX","PayPal":"PYPL",
-        "Qualcomm":"QCOM","Broadcom":"AVGO","AMD":"AMD","Texas Instruments":"TXN",
-        "Costco":"COST","Starbucks":"SBUX","Booking":"BKNG","Airbnb":"ABNB",
-        "Intuitive Surgical":"ISRG","Moderna":"MRNA","Palo Alto":"PANW",
-        "Crowdstrike":"CRWD","Snowflake":"SNOW","Datadog":"DDOG","MongoDB":"MDB",
-        "ServiceNow":"NOW","Workday":"WDAY","Fortinet":"FTNT","KLA":"KLAC",
-        "Lam Research":"LRCX","Applied Materials":"AMAT",
+        # Indizes
+        "Dow Jones":            "^DJI",
+        "S&P 500":              "^GSPC",
+        "NASDAQ 100":           "^NDX",
+        # Dow Jones 30 (vollständig, Stand 2025)
+        "Apple":                "AAPL",
+        "Microsoft":            "MSFT",
+        "Goldman Sachs":        "GS",
+        "UnitedHealth":         "UNH",
+        "Home Depot":           "HD",
+        "McDonald's":           "MCD",
+        "Caterpillar":          "CAT",
+        "Visa":                 "V",
+        "Salesforce":           "CRM",
+        "Amazon":               "AMZN",
+        "Boeing":               "BA",
+        "Honeywell":            "HON",
+        "American Express":     "AXP",
+        "JPMorgan":             "JPM",
+        "IBM":                  "IBM",
+        "Chevron":              "CVX",
+        "Procter & Gamble":     "PG",
+        "Walt Disney":          "DIS",
+        "Merck US":             "MRK",
+        "Nike":                 "NKE",
+        "Coca-Cola":            "KO",
+        "Walmart":              "WMT",
+        "3M":                   "MMM",
+        "Verizon":              "VZ",
+        "Travelers":            "TRV",
+        "Johnson & Johnson":    "JNJ",
+        "Amgen":                "AMGN",
+        "Cisco":                "CSCO",
+        "Intel":                "INTC",
+        "Sherwin-Williams":     "SHW",
+        # NASDAQ 100 Kernwerte (nicht im DJ)
+        "Nvidia":               "NVDA",
+        "Meta":                 "META",
+        "Alphabet A":           "GOOGL",
+        "Tesla":                "TSLA",
+        "Broadcom":             "AVGO",
+        "Netflix":              "NFLX",
+        "Adobe":                "ADBE",
+        "Qualcomm":             "QCOM",
+        "AMD":                  "AMD",
+        "Texas Instruments":    "TXN",
+        "Intuitive Surgical":   "ISRG",
+        "Booking Holdings":     "BKNG",
+        "Costco":               "COST",
+        "Palo Alto":            "PANW",
+        "Lam Research":         "LRCX",
+        "Applied Materials":    "AMAT",
+        "Starbucks":            "SBUX",
+        "Airbnb":               "ABNB",
+        "PayPal":               "PYPL",
+        "Crowdstrike":          "CRWD",
+        "ServiceNow":           "NOW",
+        "Workday":              "WDAY",
+        "Moderna":              "MRNA",
+        "KLA Corp":             "KLAC",
+        "Berkshire B":          "BRK-B",
+        "Mastercard":           "MA",
+        "Exxon Mobil":          "XOM",
+        "Mondelez":             "MDLZ",
+        "Regeneron":            "REGN",
+        "T-Mobile":             "TMUS",
     },
 }
 
@@ -548,6 +700,19 @@ def run_analysis(region: str, min_strength: int) -> None:
                 not sig.get("no_signal",True) and
                 sig["direction"] != "NEUTRAL"):
                 strong_results.append(sig)
+        else:
+            # Keine Daten (Ticker nicht verfügbar, yfinance-Fehler etc.)
+            # Trotzdem in all_results damit Watchlist vollständig ist
+            all_results.append({
+                "ticker":ticker,"name":name,"price":None,
+                "direction":"NEUTRAL","score":0,"strength":0,
+                "below_threshold":True,"no_signal":True,"no_data":True,
+                "signals":[],"stop_loss":None,"take_profit":None,
+                "rsi":None,"atr":None,"timestamp":datetime.now().isoformat(),
+                "support_levels":[],"resistance_levels":[],"high_volatility":False,
+                "market_phase":"—","confirming_groups":0,
+                "indicators":{},"analyst":{},"chart_data":[]
+            })
 
         # Nur Fortschritt aktualisieren, KEINE Zwischenergebnisse
         # → Watchlist zeigt erst nach Abschluss Daten
@@ -715,27 +880,38 @@ def get_watchlist(region: str = "DE"):
     all_results=st.get("all_results",[])
     analyzed={r["ticker"] for r in all_results}
 
-    # Platzhalter nur für noch nicht analysierte Werte
-    placeholders=[
-        {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
-         "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
-         "rsi":None,"timestamp":None,"below_threshold":False,"pending":True}
-        for n,t in REGIONS[region].items() if t not in analyzed
-    ]
+    if status=="done":
+        # Analyse abgeschlossen: all_results enthält ALLE Ticker der Region
+        # (entweder mit Signal, NEUTRAL, oder no_data)
+        # Nur noch Ticker die wirklich fehlen als Platzhalter ergänzen
+        missing=[
+            {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+             "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+             "rsi":None,"timestamp":None,"below_threshold":False,"pending":False,"no_data":True}
+            for n,t in REGIONS[region].items() if t not in analyzed
+        ]
+        items=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)+missing
+    else:
+        # Analyse läuft noch: Platzhalter für noch nicht verarbeitete Ticker
+        placeholders=[
+            {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+             "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+             "rsi":None,"timestamp":None,"below_threshold":False,"pending":True}
+            for n,t in REGIONS[region].items() if t not in analyzed
+        ]
+        analyzed_sorted=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)
+        items=analyzed_sorted+placeholders
 
-    # Kombinieren: analysierte nach Stärke, dann Platzhalter
-    analyzed_sorted=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)
-    items=analyzed_sorted+placeholders
-
+    total_region=len(REGIONS[region])
     return {
-        "status":          status,
-        "items":           items,
-        "total":           len(REGIONS[region]),
-        "analyzed_count":  len(analyzed_sorted),
-        "pending_count":   len(placeholders),
-        "region":          region,
-        "min_strength":    ms,
-        "is_complete":     len(placeholders)==0 and status=="done"
+        "status":         status,
+        "items":          items,
+        "total":          total_region,
+        "analyzed_count": len(all_results),
+        "pending_count":  total_region-len(analyzed),
+        "region":         region,
+        "min_strength":   ms,
+        "is_complete":    status=="done"
     }
 
 @app.get("/api/portfolio/backup")
