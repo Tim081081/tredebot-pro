@@ -563,11 +563,28 @@ async function openDetail(sig,goMF=false){
   document.getElementById('modal-sub').textContent=`${sig.direction==='BUY'?'▲ LONG':'▼ SHORT'} · ${fmt(sig.price)} · Stärke ${sig.strength||'?'}/100`;
   document.getElementById('detail-modal').classList.add('open');
   if(goMF)showDTab('minifutures');else showDTab('chart');
+
+  // Ladeanzeige im Indikatoren-Tab
+  document.getElementById('ind-body').innerHTML='<tr><td colspan="2" style="text-align:center;padding:20px;color:var(--t3)">⏳ Lade Analysedaten…</td></tr>';
+
   try{
     const res=await fetch(`${API}/api/detail/${encodeURIComponent(sig.ticker)}`);
-    const d=await res.json();curSig={...sig,...d};
-    renderChart(d);renderIndicators(d);
-  }catch(e){renderChart(sig);}
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const d=await res.json();
+    curSig={...sig,...d};
+    renderChart(d);
+    renderIndicators(d);
+  }catch(e){
+    // Chart mit vorhandenen Daten anzeigen
+    renderChart(sig);
+    // Indikatoren: Hinweis anzeigen statt leer lassen
+    document.getElementById('ind-body').innerHTML=
+      `<tr><td colspan="2" style="text-align:center;padding:20px;color:var(--t3)">
+        ⚠️ Vollständige Analyse nicht verfügbar.<br>
+        <small>Bitte Analyse im Tab Signale starten.</small>
+      </td></tr>`;
+    document.getElementById('sd-box').innerHTML='';
+  }
 }
 function closeModal(){
   document.getElementById('detail-modal').classList.remove('open');
@@ -1352,8 +1369,20 @@ function renderHistory(trades){
   const c=document.getElementById('history-list');
   if(!trades.length){c.innerHTML='<div class="empty" style="padding:20px"><div class="ei">📋</div>Noch keine Trades</div>';return;}
   c.innerHTML=[...trades].reverse().map(t=>{
-    const pnl=t.pnl||0;const dt=new Date(t.closed).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
-    return `<div class="tr"><div><div style="font-weight:600;font-size:13px">${t.name}</div><div style="font-size:10px;color:var(--t3)">${t.direction} · ${dt} · ${t.id}</div></div><div style="text-align:right"><div style="font-family:monospace;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${fmt(pnl)}€</div><div style="font-size:10px;color:var(--t3)">${t.status}</div></div></div>`;
+    const pnl=t.pnl||0;
+    const fees=t.fees||0;
+    const dt=new Date(t.closed).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
+    return `<div class="tr">
+      <div>
+        <div style="font-weight:600;font-size:13px">${t.name}</div>
+        <div style="font-size:10px;color:var(--t3)">${t.direction} · ${dt} · ${t.id}</div>
+        <div style="font-size:10px;color:var(--t3)">Gebühren: ${fmt(fees)}€ (Öffnen + Schließen)</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:monospace;font-weight:700;color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${fmt(pnl)}€</div>
+        <div style="font-size:10px;color:var(--t3)">${t.status}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 async function closeTrade(id,price){

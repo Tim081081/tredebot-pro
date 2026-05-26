@@ -634,16 +634,12 @@ def full_analysis(ticker,name,min_strength=0):
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
         ind=compute_indicators(c,h,l,v,cfg)
         sig=build_signal(ticker,name,ind,min_strength,cfg)
-        if sig is None: return None
-        analyst_info={}
-        try:
-            info=yf.Ticker(ticker).info; rec=info.get("recommendationMean")
-            n_anal=info.get("numberOfAnalystOpinions",0); target=info.get("targetMeanPrice")
-            if rec and n_anal:
-                rt={1:"Starker Kauf",2:"Kauf",3:"Halten",4:"Verkauf",5:"Starker Verkauf"}.get(round(rec),f"{rec:.1f}")
-                analyst_info={"recommendation":rt,"analysts":n_anal,"target":round(target,2) if target else None}
-        except Exception: pass
-        indicators={"RSI (14)":round(ind["rsi"],1),"MACD":round(ind["mk"],4),
+
+        # Indikatoren immer berechnen – auch wenn kein Signal
+        market_phase = ("Trendmarkt" if ind["trending"]
+                        else ("Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend"))
+        indicators={
+            "RSI (14)":round(ind["rsi"],1),"MACD":round(ind["mk"],4),
             "MACD Signal":round(ind["ms"],4),"BB %B":round(ind["pb"],2),
             "BB Upper":round(ind["bb_upper"],2),"BB Lower":round(ind["bb_lower"],2),
             "Stoch %K":round(ind["sk"],1),"Stoch %D":round(ind["sd"],1),
@@ -656,7 +652,51 @@ def full_analysis(ticker,name,min_strength=0):
             "S1":round(ind["s1"],2),"S2":round(ind["s2"],2),
             "52W Hoch":round(ind["w52h"],2),"52W Tief":round(ind["w52l"],2),
             "52W Position":f"{ind['w52p']}%","ROC (10)":f"{ind['roc10']:.1f}%",
-            "Marktphase":sig["market_phase"]}
+            "Marktphase":market_phase}
+        if ind["e200"]: indicators["EMA 200"]=round(ind["e200"],2)
+        if ind["high_vol"]: indicators["⚠️ Volatilität"]=f"ERHÖHT ({ind['atr_pct']:.1f}%) – Vorsicht!"
+
+        if sig is None:
+            # Kein Signal: Indikatoren trotzdem zurückgeben
+            price=round(ind["price"],2)
+            result={
+                "ticker":ticker,"name":name,"price":price,
+                "direction":"NEUTRAL","score":0,"strength":0,
+                "score_detail":{"momentum":0,"trend":0,"structure":0},
+                "confirming_groups":0,"market_phase":market_phase,
+                "high_volatility":ind["high_vol"],"signals":[],"warnings":[],
+                "stop_loss":None,"take_profit":None,
+                "rsi":round(ind["rsi"],1),"atr":round(ind["atr14"],2),
+                "support_levels":[round(ind["s1"],2),round(ind["s2"],2)],
+                "resistance_levels":[round(ind["r1"],2),round(ind["r2"],2)],
+                "indicators":indicators,"analyst":{},"chart_data":[],
+                "timestamp":datetime.now().isoformat()
+            }
+            # Chart-Daten trotzdem befüllen
+            df90=df.tail(90); sma20=ind["sma20"]; std20=ind["std20"]
+            bbu90=(sma20+2*std20).tail(90).round(2); bbm90=sma20.tail(90).round(2)
+            bbl90=(sma20-2*std20).tail(90).round(2)
+            e20s=c.ewm(span=20).mean().tail(90).round(2); e50s=c.ewm(span=50).mean().tail(90).round(2)
+            result["chart_data"]=[{"date":df90.index[i].strftime("%Y-%m-%d"),
+                "open":round(float(df90["Open"].iat[i]),2),"high":round(float(df90["High"].iat[i]),2),
+                "low":round(float(df90["Low"].iat[i]),2),"close":round(float(df90["Close"].iat[i]),2),
+                "volume":int(df90["Volume"].iat[i]) if "Volume" in df90.columns else 0,
+                "bb_upper":None if pd.isna(bbu90.iat[i]) else float(bbu90.iat[i]),
+                "bb_mid":None if pd.isna(bbm90.iat[i]) else float(bbm90.iat[i]),
+                "bb_lower":None if pd.isna(bbl90.iat[i]) else float(bbl90.iat[i]),
+                "ema20":float(e20s.iat[i]),"ema50":float(e50s.iat[i])}
+                for i in range(len(df90))]
+            _detail_cache[ticker]={"result":result,"ts":now}
+            return result
+        # Signal vorhanden: Analysten-Info ergänzen
+        analyst_info={}
+        try:
+            info=yf.Ticker(ticker).info; rec=info.get("recommendationMean")
+            n_anal=info.get("numberOfAnalystOpinions",0); target=info.get("targetMeanPrice")
+            if rec and n_anal:
+                rt={1:"Starker Kauf",2:"Kauf",3:"Halten",4:"Verkauf",5:"Starker Verkauf"}.get(round(rec),f"{rec:.1f}")
+                analyst_info={"recommendation":rt,"analysts":n_anal,"target":round(target,2) if target else None}
+        except Exception: pass
         if ind["e200"]: indicators["EMA 200"]=round(ind["e200"],2)
         if ind["high_vol"]: indicators["⚠️ Volatilität"]=f"ERHÖHT ({ind['atr_pct']:.1f}%) – Vorsicht!"
         if analyst_info:
@@ -1196,9 +1236,19 @@ def close_trade(req: CloseRequest):
     lev=pos.get("leverage",1)
     pnl=((req.close_price-pos["entry_price"])*pos["units"]*lev
          if pos["direction"]=="BUY" else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
-    pnl_net=pnl-fee; proceeds=round(pos["cost"]+pnl_net,2)
-    closed={**pos,"close_price":req.close_price,"pnl":round(pnl_net,2),"pnl_gross":round(pnl,2),
-            "fees":fee*2,"pnl_pct":round(pnl_net/pos["cost"]*100,2),"proceeds":proceeds,
+    # Beide Gebühren abziehen: Eröffnungs-Gebühr (bereits vom Cash abgezogen) + Schließungs-Gebühr
+    total_fees = fee * 2  # Eröffnen + Schließen
+    open_fee   = pos.get("fee", fee)  # beim Öffnen bereits gezahlt
+    close_fee  = fee
+    pnl_net = round(pnl - close_fee, 2)  # nur Schließgebühr vom Brutto-P&L abziehen
+    proceeds = round(pos["cost"] + pnl_net, 2)
+    closed={**pos,"close_price":req.close_price,
+            "pnl":pnl_net,                    # Netto-P&L (nach Schließgebühr)
+            "pnl_gross":round(pnl,2),          # Brutto-P&L
+            "pnl_after_all_fees":round(pnl - total_fees + open_fee, 2),  # nach allen Gebühren (inkl. Öffnen)
+            "fees":total_fees,                 # Gesamtgebühren (Öffnen + Schließen)
+            "open_fee":open_fee,"close_fee":close_fee,
+            "pnl_pct":round(pnl_net/pos["cost"]*100,2),"proceeds":proceeds,
             "closed":datetime.now().isoformat(),"status":"WIN" if pnl_net>0 else "LOSS"}
     p["positions"]=[x for x in p["positions"] if x["id"]!=req.trade_id]
     p["closed_trades"].append(closed); p["cash"]=round(p["cash"]+proceeds,2)
