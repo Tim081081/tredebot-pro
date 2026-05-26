@@ -200,6 +200,7 @@ input[type=range]{width:100%;accent-color:var(--blue)}
   <button id="start-btn" onclick="startAnalysis()" style="width:100%;padding:13px;border-radius:var(--r);background:var(--blue);color:#fff;border:none;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:14px;letter-spacing:.2px;transition:opacity .15s">
     🔍 Analyse starten
   </button>
+  <div id="sig-timestamp" style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:10px;min-height:16px"></div>
   <div class="sg">
     <div class="sc"><div class="sv blu" id="s-analyzed">—</div><div class="sl">Analysiert</div></div>
     <div class="sc"><div class="sv" id="s-found">—</div><div class="sl">Signale</div></div>
@@ -358,14 +359,29 @@ function setRegion(r,btn){
   btn.classList.add('active');
   document.getElementById('region-info').textContent=REGION_LABELS[r]||r;
   document.getElementById('wl-region-label').textContent=r;
-  // Watchlist-Cache leeren → nächster loadWl-Aufruf lädt frisch
   _wlData=[]; _wlRegion='';
-  // Wenn Watchlist-Tab gerade aktiv: sofort neu laden
   if(document.getElementById('page-watchlist').classList.contains('active'))
     loadWl(true);
-  // Signale-Tab: Status laden, kein Auto-Start
+
+  // Signale-Tab: gecachte Daten der neuen Region sofort anzeigen
   document.getElementById('signals-list').innerHTML='';
   document.getElementById('progress-area').innerHTML='';
+  document.getElementById('sig-timestamp').textContent='';
+
+  const cached=loadSigCache(r);
+  if(cached?.signals?.length){
+    renderSignals(cached.signals);
+    document.getElementById('s-analyzed').textContent=cached.stats?.total_analyzed||'—';
+    document.getElementById('s-found').textContent=cached.stats?.signals_found||'—';
+    document.getElementById('s-top').textContent=
+      cached.signals[0]?.strength ? cached.signals[0].strength+'/100 ('+cached.signals.length+')':'—';
+    if(cached.stats?.timestamp){
+      const ts=new Date(cached.stats.timestamp);
+      document.getElementById('sig-timestamp').textContent='Zuletzt analysiert: '+
+        ts.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+
+        ts.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+    }
+  }
   loadSignals();
 }
 document.getElementById('region-info').textContent=REGION_LABELS['DE'];
@@ -423,21 +439,27 @@ async function loadSignals(){
         btn.disabled=true; btn.textContent=`⏳ ${p}% analysiert`; btn.style.opacity='.7';
 
       } else if(st==='done'){
-        // Analyse abgeschlossen: alle Ergebnisse anzeigen
         pa.innerHTML='';
         if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
         btn.disabled=false; btn.textContent='🔍 Analyse starten'; btn.style.opacity='1';
 
-        // Stats
         document.getElementById('s-analyzed').textContent=d.total_analyzed||'—';
         document.getElementById('s-found').textContent=d.signals_found||0;
         document.getElementById('s-top').textContent=
           d.top_signals?.length ? d.top_signals[0].strength+'/100 ('+d.top_signals.length+')' : '—';
 
-        // Signale (nur über Schwelle – vom Backend bereits gefiltert)
-        renderSignals(d.top_signals||[]);
+        // Zeitstempel anzeigen
+        if(d.timestamp){
+          const ts=new Date(d.timestamp);
+          const tsStr=ts.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+
+                      ts.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+          document.getElementById('sig-timestamp').textContent='Zuletzt analysiert: '+tsStr;
+        }
 
-        // Watchlist-Cache leeren damit sie sich beim nächsten Öffnen aktualisiert
+        // Ergebnisse in localStorage cachen (Problem 4)
+        saveSigCache(curRegion, d);
+
+        renderSignals(d.top_signals||[]);
         _wlData=[]; _wlRegion='';
         if(document.getElementById('page-watchlist').classList.contains('active'))
           loadWl(true);
@@ -1737,46 +1759,98 @@ function renderWl(statusHint=''){
   c.innerHTML=html;
 }
 
-// ── Portfolio Backup (localStorage Fallback) ───────────────────────────────────
+// ── Portfolio Backup/Restore ──────────────────────────────────────────────────
 async function backupP(){
-  try{const r=await fetch(`${API}/api/portfolio/backup`);const d=await r.json();if(d.closed_trades!==undefined)localStorage.setItem('tb_pb',JSON.stringify(d));}catch(e){}
+  try{
+    const r=await fetch(`${API}/api/portfolio/backup`);
+    const d=await r.json();
+    if(d.closed_trades!==undefined) localStorage.setItem('tb_pb',JSON.stringify(d));
+  }catch(e){}
 }
+
 async function restoreP(){
   try{
-    const r=await fetch(`${API}/api/portfolio`);const d=await r.json();
-    const empty=d.portfolio?.closed_trades?.length===0&&d.portfolio?.positions?.length===0&&Math.abs((d.portfolio?.cash||0)-10000)<1;
     const bk=localStorage.getItem('tb_pb');
-    if(empty&&bk){
-      const bd=JSON.parse(bk);const has=bd.closed_trades?.length>0||bd.positions?.length>0||Math.abs((bd.cash||0)-10000)>1;
-      if(has){await fetch(`${API}/api/portfolio/restore`,{method:'POST',headers:{'Content-Type':'application/json'},body:bk});toast('📂 Portfolio aus Backup wiederhergestellt','ok');}
+    if(!bk) return; // Kein Backup vorhanden
+
+    const bd=JSON.parse(bk);
+    const hasData=bd.closed_trades?.length>0 || bd.positions?.length>0 ||
+                  Math.abs((bd.cash||0)-(bd.start_capital||10000))>1;
+    if(!hasData) return; // Backup ist auch leer
+
+    const r=await fetch(`${API}/api/portfolio`);
+    const d=await r.json();
+    const serverEmpty=
+      d.portfolio?.closed_trades?.length===0 &&
+      d.portfolio?.positions?.length===0 &&
+      Math.abs((d.portfolio?.cash||0)-(d.portfolio?.start_capital||10000))<1;
+
+    if(serverEmpty){
+      await fetch(`${API}/api/portfolio/restore`,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:bk
+      });
+      toast('📂 Portfolio wiederhergestellt','ok');
+      // Portfolio sofort neu laden
+      setTimeout(loadPortfolio, 500);
     }
   }catch(e){}
 }
 
-// ── Auto-Routinen ─────────────────────────────────────────────────────────────
-setInterval(backupP, 120000);  // Portfolio alle 2 Min sichern
+// ── Signale cachen (Problem 4) ────────────────────────────────────────────────
+const SIG_CACHE_KEY = 'tb_sig_cache_v1';
 
-// Signale werden NICHT automatisch geladen – nur manuell über "Analyse starten"
+function saveSigCache(region, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SIG_CACHE_KEY)||'{}');
+    all[region] = {signals: data.top_signals||[], stats: {
+      total_analyzed: data.total_analyzed,
+      signals_found: data.signals_found,
+      timestamp: data.timestamp
+    }};
+    localStorage.setItem(SIG_CACHE_KEY, JSON.stringify(all));
+  } catch(e) {}
+}
+
+function loadSigCache(region) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SIG_CACHE_KEY)||'{}');
+    return all[region] || null;
+  } catch(e) { return null; }
+}
+
+// ── Auto-Portfolio-Aktualisierung alle 10 Min (Problem 3) ─────────────────────
+async function autoRefreshPortfolio() {
+  if(document.hidden) return;
+  try {
+    // Vollständige Analyse aller offenen Positionen anstoßen
+    const r = await fetch(`${API}/api/portfolio/refresh`, {method:'POST', signal:AbortSignal.timeout(60000)});
+    if(r.ok) {
+      const d = await r.json();
+      if(d.updated > 0) {
+        loadPortfolio(); // UI aktualisieren
+        backupP();       // Backup sichern
+      }
+    }
+  } catch(e) {}
+}
+
+// ── Auto-Routinen ─────────────────────────────────────────────────────────────
+setInterval(backupP, 120000);         // Portfolio alle 2 Min sichern
+setInterval(autoRefreshPortfolio, 10*60*1000); // Positionen + Analyse alle 10 Min
+
+// Laufende Analyse pollen + Portfolio aktuell halten
 setInterval(()=>{
   if(!document.hidden){
-    // Laufende Analyse weiter pollen (falls noch running)
     const btn=document.getElementById('start-btn');
     if(btn&&btn.disabled) loadSignals();
-    // Portfolio-Tab aktuell halten
     if(document.getElementById('page-portfolio').classList.contains('active')) loadPortfolio();
   }
 }, 8000);
-
-setInterval(()=>{
-  if(!document.hidden&&document.getElementById('page-portfolio').classList.contains('active'))
-    updateLivePrices();
-}, 5*60*1000);
 
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){if(window._currentSigs?.length)markSeen(window._currentSigs);}
   else{
     backupP();
-    // Nur Status der laufenden Analyse abfragen, KEINE neue Analyse starten
     const btn=document.getElementById('start-btn');
     if(btn&&btn.disabled) loadSignals();
     if(document.getElementById('page-portfolio').classList.contains('active')){
@@ -1788,22 +1862,33 @@ window.addEventListener('beforeunload',()=>{if(window._currentSigs?.length)markS
 window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(window._currentSigs);});
 
 // ── Init ─────────────────────────────────────────────────────────────────────
-// Settings sofort aus localStorage in den Speicher laden (noch kein Rendern –
-// das DOM ist noch nicht vollständig bereit)
 (function initSettingsEarly(){
   const local = getLocalSettings();
   if (local) window._cachedSettings = local;
 })();
 
+// Problem 4: Gecachte Signale sofort anzeigen (bevor Server antwortet)
+(function initSignalsFromCache(){
+  const cached = loadSigCache(curRegion);
+  if(cached?.signals?.length) {
+    renderSignals(cached.signals);
+    if(cached.stats) {
+      document.getElementById('s-analyzed').textContent = cached.stats.total_analyzed||'—';
+      document.getElementById('s-found').textContent = cached.stats.signals_found||'—';
+      document.getElementById('s-top').textContent =
+        cached.signals[0]?.strength ? cached.signals[0].strength+'/100 ('+cached.signals.length+')' : '—';
+    }
+  }
+})();
+
+// Problem 2: Portfolio sofort wiederherstellen (nicht erst nach 3s warten)
+restoreP();
+
 // Signale-Status laden (kein Auto-Start)
 loadSignals();
 
-// Settings laden + ggf. automatisch nach Deploy wiederherstellen
-// (DOM ist jetzt bereit, da Script am Ende des Body)
+// Settings laden
 loadSettings();
-
-// Portfolio nach kurzem Delay wiederherstellen (Server braucht Startzeit)
-setTimeout(restoreP, 3000);
 </script>
 </body>
 </html>

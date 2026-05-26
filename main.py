@@ -116,18 +116,18 @@ REGIONS = {
         "Jenoptik":         "JEN.DE",
         "LPKF Laser":       "LPK.DE",
         "Nemetschek":       "NEM.DE",
-        "New Work SE":      "NWX.DE",
         "TeamViewer":       "TMV.DE",
         "TUI":              "TUI1.DE",
         "United Internet":  "UTDI.DE",
         "Wacker Chemie":    "WCH.DE",
-        # MDAX-Ergänzungen (liquideste Werte)
+        # MDAX-Ergänzungen (liquideste Werte, yfinance-geprüft)
         "Aurubis":          "NDA.DE",
         "Knorr-Bremse":     "KBX.DE",
         "LEG Immobilien":   "LEG.DE",
         "Scout24":          "G24.DE",
         "Talanx":           "TLX.DE",
-        "Traton":           "8TRA.DE",
+        # Traton: 8TRA.DE beginnt mit Zahl → yfinance-Problem, verwende US-ADR nicht verfügbar
+        # New Work SE: NWX.DE sehr illiquid → entfernt
     },
     "EU": {
         # Indizes
@@ -1009,6 +1009,75 @@ def get_portfolio():
             "max_exposure_pct":max_exp,"current_exposure_pct":exp,
             "positions_limit_reached":len(p["positions"])>=max_pos,
             "exposure_limit_reached":exp>=max_exp}}}
+
+@app.post("/api/portfolio/refresh")
+def refresh_portfolio():
+    """
+    Aktualisiert alle offenen Positionen:
+    - Aktuelle Kurse laden
+    - Vollständige Indikator-Analyse pro Basiswert
+    - P&L neu berechnen
+    - Portfolio speichern
+    """
+    p=load_portfolio(); cfg=load_settings()
+    if not p.get("positions"):
+        return {"updated":0,"message":"Keine offenen Positionen"}
+
+    updated=0
+    for pos in p["positions"]:
+        try:
+            base_ticker=pos.get("base_ticker") or pos["ticker"].split()[0]
+            if base_ticker not in VALID_TICKERS: continue
+
+            # Aktuellen Kurs
+            df=fetch_ohlcv(base_ticker,period="5d",timeout=8)
+            if df is None or df.empty: continue
+            price=round(float(df["Close"].iloc[-1]),2)
+
+            # Vollständige Analyse für Indikator-Update
+            df6=fetch_ohlcv(base_ticker,period="6mo")
+            ind=None
+            if df6 is not None and len(df6)>=60:
+                try:
+                    c=df6["Close"].squeeze(); h=df6["High"].squeeze(); l=df6["Low"].squeeze()
+                    v=df6["Volume"].squeeze() if "Volume" in df6.columns else pd.Series(np.ones(len(c)),index=c.index)
+                    ind=compute_indicators(c,h,l,v,cfg)
+                except Exception: pass
+
+            # P&L berechnen
+            lev=pos.get("leverage",1)
+            if pos["direction"]=="BUY":
+                pnl=(price-pos["entry_price"])*pos["units"]*lev
+            else:
+                pnl=(pos["entry_price"]-price)*pos["units"]*lev
+            pnl_pct=round(pnl/pos["cost"]*100,2) if pos["cost"]>0 else 0
+
+            pos["current_price"]=price
+            pos["current_value"]=round(pos["cost"]+pnl,2)
+            pos["unrealized_pnl"]=round(pnl,2)
+            pos["unrealized_pnl_pct"]=pnl_pct
+            pos["base_current_price"]=price if not pos.get("is_mini_future") else pos.get("base_current_price",price)
+            pos["last_updated"]=datetime.now().isoformat()
+
+            # Indikator-Zusammenfassung speichern
+            if ind:
+                pos["current_indicators"]={
+                    "rsi":round(ind["rsi"],1),
+                    "adx":round(ind["adx"],1),
+                    "macd":round(ind["mk"],4),
+                    "bb_pct_b":round(ind["pb"],2),
+                    "market_phase":"Trendmarkt" if ind["trending"] else "Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend",
+                    "high_vol":ind["high_vol"],
+                    "atr_pct":round(ind["atr_pct"],2),
+                }
+            updated+=1
+        except Exception: continue
+
+    if updated>0:
+        invalidate_portfolio_cache()
+        save_portfolio(p)
+
+    return {"updated":updated,"timestamp":datetime.now().isoformat()}
 
 class TradeRequest(BaseModel):
     ticker:str; name:str; direction:str
