@@ -672,20 +672,30 @@ def full_analysis(ticker,name,min_strength=0):
                 "indicators":indicators,"analyst":{},"chart_data":[],
                 "timestamp":datetime.now().isoformat()
             }
-            # Chart-Daten trotzdem befüllen
-            df90=df.tail(90); sma20=ind["sma20"]; std20=ind["std20"]
-            bbu90=(sma20+2*std20).tail(90).round(2); bbm90=sma20.tail(90).round(2)
-            bbl90=(sma20-2*std20).tail(90).round(2)
-            e20s=c.ewm(span=20).mean().tail(90).round(2); e50s=c.ewm(span=50).mean().tail(90).round(2)
-            result["chart_data"]=[{"date":df90.index[i].strftime("%Y-%m-%d"),
-                "open":round(float(df90["Open"].iat[i]),2),"high":round(float(df90["High"].iat[i]),2),
-                "low":round(float(df90["Low"].iat[i]),2),"close":round(float(df90["Close"].iat[i]),2),
-                "volume":int(df90["Volume"].iat[i]) if "Volume" in df90.columns else 0,
-                "bb_upper":None if pd.isna(bbu90.iat[i]) else float(bbu90.iat[i]),
-                "bb_mid":None if pd.isna(bbm90.iat[i]) else float(bbm90.iat[i]),
-                "bb_lower":None if pd.isna(bbl90.iat[i]) else float(bbl90.iat[i]),
-                "ema20":float(e20s.iat[i]),"ema50":float(e50s.iat[i])}
-                for i in range(len(df90))]
+            # Chart-Daten für NEUTRAL-Fall
+            try:
+                df90=df.tail(90).copy()
+                sma20=ind["sma20"]; std20=ind["std20"]
+                bbu90=(sma20+2*std20).reindex(df90.index).round(2)
+                bbm90=sma20.reindex(df90.index).round(2)
+                bbl90=(sma20-2*std20).reindex(df90.index).round(2)
+                e20s=c.ewm(span=20).mean().reindex(df90.index).round(2)
+                e50s=c.ewm(span=50).mean().reindex(df90.index).round(2)
+                result["chart_data"]=[{
+                    "date":    df90.index[i].strftime("%Y-%m-%d"),
+                    "open":    round(float(df90["Open"].iat[i]),2),
+                    "high":    round(float(df90["High"].iat[i]),2),
+                    "low":     round(float(df90["Low"].iat[i]),2),
+                    "close":   round(float(df90["Close"].iat[i]),2),
+                    "volume":  int(df90["Volume"].iat[i]) if "Volume" in df90.columns else 0,
+                    "bb_upper":None if pd.isna(bbu90.iat[i]) else float(bbu90.iat[i]),
+                    "bb_mid":  None if pd.isna(bbm90.iat[i]) else float(bbm90.iat[i]),
+                    "bb_lower":None if pd.isna(bbl90.iat[i]) else float(bbl90.iat[i]),
+                    "ema20":   float(e20s.iat[i]),
+                    "ema50":   float(e50s.iat[i])}
+                    for i in range(len(df90))]
+            except Exception:
+                result["chart_data"]=[]
             _detail_cache[ticker]={"result":result,"ts":now}
             return result
         # Signal vorhanden: Analysten-Info ergänzen
@@ -702,19 +712,34 @@ def full_analysis(ticker,name,min_strength=0):
         if analyst_info:
             indicators["Analysten"]=f"{analyst_info['recommendation']} ({analyst_info['analysts']} Analysten) ℹ️"
             if analyst_info.get("target"): indicators["Kursziel"]=f"{analyst_info['target']:.2f} (nur Info)"
-        df90=df.tail(90); sma20=ind["sma20"]; std20=ind["std20"]
-        bbu90=(sma20+2*std20).tail(90).round(2); bbm90=sma20.tail(90).round(2)
-        bbl90=(sma20-2*std20).tail(90).round(2)
-        e20s=c.ewm(span=20).mean().tail(90).round(2); e50s=c.ewm(span=50).mean().tail(90).round(2)
-        chart_data=[{"date":df90.index[i].strftime("%Y-%m-%d"),
-            "open":round(float(df90["Open"].iat[i]),2),"high":round(float(df90["High"].iat[i]),2),
-            "low":round(float(df90["Low"].iat[i]),2),"close":round(float(df90["Close"].iat[i]),2),
-            "volume":int(df90["Volume"].iat[i]) if "Volume" in df90.columns else 0,
-            "bb_upper":None if pd.isna(bbu90.iat[i]) else float(bbu90.iat[i]),
-            "bb_mid":None if pd.isna(bbm90.iat[i]) else float(bbm90.iat[i]),
-            "bb_lower":None if pd.isna(bbl90.iat[i]) else float(bbl90.iat[i]),
-            "ema20":float(e20s.iat[i]),"ema50":float(e50s.iat[i])}
-            for i in range(len(df90))]
+
+        # Chart-Daten berechnen (abgesichert – Fehler hier sollen Indikatoren nicht blockieren)
+        chart_data=[]
+        try:
+            df90=df.tail(90).copy()
+            sma20=ind["sma20"]; std20=ind["std20"]
+            # Sicherstellen dass alle Series gleich lang sind
+            bbu90=(sma20+2*std20).reindex(df90.index).round(2)
+            bbm90=sma20.reindex(df90.index).round(2)
+            bbl90=(sma20-2*std20).reindex(df90.index).round(2)
+            e20s=c.ewm(span=20).mean().reindex(df90.index).round(2)
+            e50s=c.ewm(span=50).mean().reindex(df90.index).round(2)
+            chart_data=[{
+                "date":    df90.index[i].strftime("%Y-%m-%d"),
+                "open":    round(float(df90["Open"].iat[i]),2),
+                "high":    round(float(df90["High"].iat[i]),2),
+                "low":     round(float(df90["Low"].iat[i]),2),
+                "close":   round(float(df90["Close"].iat[i]),2),
+                "volume":  int(df90["Volume"].iat[i]) if "Volume" in df90.columns else 0,
+                "bb_upper":None if pd.isna(bbu90.iat[i]) else float(bbu90.iat[i]),
+                "bb_mid":  None if pd.isna(bbm90.iat[i]) else float(bbm90.iat[i]),
+                "bb_lower":None if pd.isna(bbl90.iat[i]) else float(bbl90.iat[i]),
+                "ema20":   float(e20s.iat[i]),
+                "ema50":   float(e50s.iat[i])}
+                for i in range(len(df90))]
+        except Exception:
+            chart_data=[]  # Chart schlägt fehl → Indikatoren trotzdem zurückgeben
+
         result={**sig,"indicators":indicators,"analyst":analyst_info,"chart_data":chart_data}
         _detail_cache[ticker]={"result":result,"ts":now}
         return result

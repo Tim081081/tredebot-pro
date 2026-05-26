@@ -575,24 +575,55 @@ async function openDetail(sig,goMF=false){
   document.getElementById('detail-modal').classList.add('open');
   if(goMF)showDTab('minifutures');else showDTab('chart');
 
-  // Ladeanzeige im Indikatoren-Tab
   document.getElementById('ind-body').innerHTML='<tr><td colspan="2" style="text-align:center;padding:20px;color:var(--t3)">⏳ Lade Analysedaten…</td></tr>';
+  document.getElementById('sd-box').innerHTML='';
+  document.getElementById('abox').innerHTML='';
+  document.getElementById('vbox').innerHTML='';
 
   try{
-    const res=await fetch(`${API}/api/detail/${encodeURIComponent(sig.ticker)}`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
+    const res=await fetch(`${API}/api/detail/${encodeURIComponent(sig.ticker)}`,
+                          {signal:AbortSignal.timeout(30000)});
+    // Bei HTTP-Fehler: Text lesen für Debugging
+    if(!res.ok){
+      const errText=await res.text().catch(()=>'');
+      throw new Error(`HTTP ${res.status}: ${errText.slice(0,100)}`);
+    }
     const d=await res.json();
     curSig={...sig,...d};
     renderChart(d);
-    renderIndicators(d);
+    // Indikatoren anzeigen – auch wenn indicators leer ist
+    if(d.indicators && Object.keys(d.indicators).length > 0){
+      renderIndicators(d);
+    } else {
+      // Keine Indikatoren vom Server → eigene Berechnung im Browser nicht möglich
+      // Zeige wenigstens Score-Daten aus dem Signal
+      document.getElementById('ind-body').innerHTML=
+        `<tr><td colspan="2" style="text-align:center;padding:16px;color:var(--t3)">
+          Indikator-Daten werden berechnet…<br>
+          <small>Bitte kurz warten und Indikatoren-Tab erneut tippen.</small>
+        </td></tr>`;
+      // Retry nach 3 Sekunden
+      setTimeout(async()=>{
+        try{
+          const r2=await fetch(`${API}/api/detail/${encodeURIComponent(sig.ticker)}`,
+                               {signal:AbortSignal.timeout(30000)});
+          if(r2.ok){
+            const d2=await r2.json();
+            if(d2.indicators && Object.keys(d2.indicators).length > 0){
+              curSig={...curSig,...d2};
+              renderIndicators(d2);
+            }
+          }
+        }catch(e){}
+      }, 3000);
+    }
   }catch(e){
-    // Chart mit vorhandenen Daten anzeigen
     renderChart(sig);
-    // Indikatoren: Hinweis anzeigen statt leer lassen
     document.getElementById('ind-body').innerHTML=
       `<tr><td colspan="2" style="text-align:center;padding:20px;color:var(--t3)">
-        ⚠️ Vollständige Analyse nicht verfügbar.<br>
-        <small>Bitte Analyse im Tab Signale starten.</small>
+        ⚠️ Analysedaten konnten nicht geladen werden.<br>
+        <small style="color:var(--red)">${e.message||'Verbindungsfehler'}</small><br>
+        <button onclick="openDetail(curSig)" class="btn-sm btn-blue" style="margin-top:10px">🔄 Erneut laden</button>
       </td></tr>`;
     document.getElementById('sd-box').innerHTML='';
   }
