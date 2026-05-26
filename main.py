@@ -1098,30 +1098,27 @@ def refresh_portfolio():
             base_price = round(float(df["Close"].iloc[-1]), 2)
 
             # P&L korrekt berechnen:
-            # - Direkte Position: (Kurs - Einstieg) × Units × Leverage
-            # - MF-Position: Basiswert-Kursänderung × Units × Leverage
-            #   (entry_price ist MF-Preis, NICHT Basiswert-Preis → separat tracken)
+            # MF: (% Basiswert-Änderung) × Hebel × eingesetztes Kapital
+            # Direkt: (Kurs - Einstieg) × Units (kein Hebel in units)
             if is_mf:
-                # Basiswert-Einstiegskurs ermitteln
                 base_entry = pos.get("base_entry_price")
                 if base_entry and base_entry > 0:
-                    # P&L basiert auf Basiswert-Bewegung × Leverage
+                    # Prozentuale Basiswert-Bewegung × Hebel × Kosten
+                    # Bsp: GS -0.1% × 12 × 500€ = -6€ (korrekt)
+                    delta_pct = (base_price - base_entry) / base_entry
                     if pos["direction"] == "BUY":
-                        pnl = (base_price - base_entry) * pos["units"] * lev
-                    else:
-                        pnl = (base_entry - base_price) * pos["units"] * lev
+                        pnl = delta_pct * lev * pos["cost"]
+                    else:  # SHORT: Gewinn wenn Basiswert fällt
+                        pnl = -delta_pct * lev * pos["cost"]
                 else:
-                    # Kein Basiswert-Einstieg bekannt → P&L = 0 (sicher)
                     pnl = 0.0
                 pos["base_current_price"] = base_price
-                # current_price bleibt der MF-Preis (Einstieg) - wird nicht aktualisiert
-                # da wir keinen Live-MF-Preis haben
             else:
-                # Direkte Position: Kurs ist Basiswert-Kurs
+                # Direkte Position
                 if pos["direction"] == "BUY":
-                    pnl = (base_price - pos["entry_price"]) * pos["units"] * lev
+                    pnl = (base_price - pos["entry_price"]) * pos["units"]
                 else:
-                    pnl = (pos["entry_price"] - base_price) * pos["units"] * lev
+                    pnl = (pos["entry_price"] - base_price) * pos["units"]
                 pos["current_price"] = base_price
                 pos["base_current_price"] = base_price
 
