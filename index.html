@@ -657,13 +657,16 @@ function resetZoom(){if(chartInst)chartInst.resetZoom();}
 
 function buildChart(data,d){
   if(!data?.length)return;
-  // Altes Chart zerstören
   if(chartInst){
     try{ chartInst.remove(); }catch(e){}
     chartInst=null;
   }
   const container=document.getElementById('price-chart');
   container.innerHTML='';
+
+  // Support/Widerstand aus dem Signal-Objekt
+  const supp=d?.support_levels||[];
+  const res=d?.resistance_levels||[];
 
   // Landscape: volle Höhe nutzen
   const isLandscape=window.innerWidth>window.innerHeight;
