@@ -1085,51 +1085,71 @@ def refresh_portfolio():
     updated=0
     for pos in p["positions"]:
         try:
-            base_ticker=pos.get("base_ticker") or pos["ticker"].split()[0]
+            is_mf = pos.get("is_mini_future", False)
+            lev   = pos.get("leverage", 1)
+
+            # Basiswert-Ticker bestimmen
+            base_ticker = pos.get("base_ticker") or pos["ticker"].split()[0]
             if base_ticker not in VALID_TICKERS: continue
 
-            # Aktuellen Kurs
-            df=fetch_ohlcv(base_ticker,period="5d",timeout=8)
+            # Aktuellen Basiswert-Kurs laden
+            df = fetch_ohlcv(base_ticker, period="5d", timeout=8)
             if df is None or df.empty: continue
-            price=round(float(df["Close"].iloc[-1]),2)
+            base_price = round(float(df["Close"].iloc[-1]), 2)
 
-            # Vollständige Analyse für Indikator-Update
-            df6=fetch_ohlcv(base_ticker,period="6mo")
-            ind=None
-            if df6 is not None and len(df6)>=60:
+            # P&L korrekt berechnen:
+            # - Direkte Position: (Kurs - Einstieg) × Units × Leverage
+            # - MF-Position: Basiswert-Kursänderung × Units × Leverage
+            #   (entry_price ist MF-Preis, NICHT Basiswert-Preis → separat tracken)
+            if is_mf:
+                # Basiswert-Einstiegskurs ermitteln
+                base_entry = pos.get("base_entry_price")
+                if base_entry and base_entry > 0:
+                    # P&L basiert auf Basiswert-Bewegung × Leverage
+                    if pos["direction"] == "BUY":
+                        pnl = (base_price - base_entry) * pos["units"] * lev
+                    else:
+                        pnl = (base_entry - base_price) * pos["units"] * lev
+                else:
+                    # Kein Basiswert-Einstieg bekannt → P&L = 0 (sicher)
+                    pnl = 0.0
+                pos["base_current_price"] = base_price
+                # current_price bleibt der MF-Preis (Einstieg) - wird nicht aktualisiert
+                # da wir keinen Live-MF-Preis haben
+            else:
+                # Direkte Position: Kurs ist Basiswert-Kurs
+                if pos["direction"] == "BUY":
+                    pnl = (base_price - pos["entry_price"]) * pos["units"] * lev
+                else:
+                    pnl = (pos["entry_price"] - base_price) * pos["units"] * lev
+                pos["current_price"] = base_price
+                pos["base_current_price"] = base_price
+
+            pnl_pct = round(pnl / pos["cost"] * 100, 2) if pos["cost"] > 0 else 0
+            pos["current_value"]       = round(pos["cost"] + pnl, 2)
+            pos["unrealized_pnl"]      = round(pnl, 2)
+            pos["unrealized_pnl_pct"]  = pnl_pct
+            pos["last_updated"]        = datetime.now().isoformat()
+
+            # Vollständige Indikator-Analyse für Basiswert
+            df6 = fetch_ohlcv(base_ticker, period="6mo")
+            if df6 is not None and len(df6) >= 60:
                 try:
                     c=df6["Close"].squeeze(); h=df6["High"].squeeze(); l=df6["Low"].squeeze()
                     v=df6["Volume"].squeeze() if "Volume" in df6.columns else pd.Series(np.ones(len(c)),index=c.index)
-                    ind=compute_indicators(c,h,l,v,cfg)
+                    ind = compute_indicators(c, h, l, v, cfg)
+                    pos["current_indicators"] = {
+                        "rsi":        round(ind["rsi"], 1),
+                        "adx":        round(ind["adx"], 1),
+                        "macd":       round(ind["mk"], 4),
+                        "bb_pct_b":   round(ind["pb"], 2),
+                        "market_phase": "Trendmarkt" if ind["trending"] else "Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend",
+                        "high_vol":   ind["high_vol"],
+                        "atr_pct":    round(ind["atr_pct"], 2),
+                    }
                 except Exception: pass
 
-            # P&L berechnen
-            lev=pos.get("leverage",1)
-            if pos["direction"]=="BUY":
-                pnl=(price-pos["entry_price"])*pos["units"]*lev
-            else:
-                pnl=(pos["entry_price"]-price)*pos["units"]*lev
-            pnl_pct=round(pnl/pos["cost"]*100,2) if pos["cost"]>0 else 0
-
-            pos["current_price"]=price
-            pos["current_value"]=round(pos["cost"]+pnl,2)
-            pos["unrealized_pnl"]=round(pnl,2)
-            pos["unrealized_pnl_pct"]=pnl_pct
-            pos["base_current_price"]=price if not pos.get("is_mini_future") else pos.get("base_current_price",price)
-            pos["last_updated"]=datetime.now().isoformat()
-
-            # Indikator-Zusammenfassung speichern
-            if ind:
-                pos["current_indicators"]={
-                    "rsi":round(ind["rsi"],1),
-                    "adx":round(ind["adx"],1),
-                    "macd":round(ind["mk"],4),
-                    "bb_pct_b":round(ind["pb"],2),
-                    "market_phase":"Trendmarkt" if ind["trending"] else "Seitwärtsmarkt" if ind["sideways"] else "Schwacher Trend",
-                    "high_vol":ind["high_vol"],
-                    "atr_pct":round(ind["atr_pct"],2),
-                }
-            updated+=1
+            updated += 1
         except Exception: continue
 
     if updated>0:
