@@ -317,7 +317,12 @@ function showTab(n){
   const tabs=['signals','watchlist','portfolio','history','settings'];
   document.querySelectorAll('.tab')[tabs.indexOf(n)].classList.add('active');
   document.getElementById('page-'+n).classList.add('active');
-  if(n==='portfolio'||n==='history'){loadPortfolio();restoreP();}
+  if(n==='portfolio'||n==='history'){
+    loadPortfolio();
+    restoreP();
+    // Sofort Kurse + Analyse aktualisieren wenn Portfolio geöffnet wird
+    setTimeout(autoRefreshPortfolio, 500);
+  }
   if(n==='watchlist')loadWl(false);
   if(n==='settings')loadSettings();
 }
@@ -1847,18 +1852,16 @@ function loadSigCache(region) {
   } catch(e) { return null; }
 }
 
-// ── Auto-Portfolio-Aktualisierung alle 10 Min (Problem 3) ─────────────────────
+// ── Auto-Portfolio-Aktualisierung ────────────────────────────────────────────
 async function autoRefreshPortfolio() {
   if(document.hidden) return;
   try {
-    // Vollständige Analyse aller offenen Positionen anstoßen
     const r = await fetch(`${API}/api/portfolio/refresh`, {method:'POST', signal:AbortSignal.timeout(60000)});
     if(r.ok) {
       const d = await r.json();
-      if(d.updated > 0) {
-        loadPortfolio(); // UI aktualisieren
-        backupP();       // Backup sichern
-      }
+      // Immer UI aktualisieren (auch wenn updated=0, damit Anzeige stimmt)
+      loadPortfolio();
+      backupP();
     }
   } catch(e) {}
 }

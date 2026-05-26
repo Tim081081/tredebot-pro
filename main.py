@@ -718,7 +718,19 @@ def full_analysis(ticker,name,min_strength=0):
         result={**sig,"indicators":indicators,"analyst":analyst_info,"chart_data":chart_data}
         _detail_cache[ticker]={"result":result,"ts":now}
         return result
-    except Exception: return None
+    except Exception as ex:
+        try:
+            df_tmp=fetch_ohlcv(ticker,period="5d",timeout=8)
+            price=round(float(df_tmp["Close"].iloc[-1]),2) if df_tmp is not None and not df_tmp.empty else 0
+        except Exception: price=0
+        return {"ticker":ticker,"name":name,"price":price,
+            "direction":"NEUTRAL","score":0,"strength":0,
+            "score_detail":{"momentum":0,"trend":0,"structure":0},
+            "confirming_groups":0,"market_phase":"—","high_volatility":False,
+            "signals":[],"warnings":[],"stop_loss":None,"take_profit":None,
+            "rsi":None,"atr":None,"support_levels":[],"resistance_levels":[],
+            "indicators":{},"analyst":{},"chart_data":[],
+            "timestamp":datetime.now().isoformat()}
     finally: gc.collect()
 
 def run_analysis(region: str, min_strength: int) -> None:
@@ -851,7 +863,14 @@ def get_regions():
 def get_detail(ticker: str):
     ticker=validate_ticker(ticker); name=TICKER_TO_NAME.get(ticker,ticker)
     result=full_analysis(ticker,name,min_strength=0)
-    if not result: raise HTTPException(404,f"Keine Daten für {ticker}")
+    if not result:
+        # Fallback: minimale Antwort damit Frontend nicht fehlschlägt
+        return {"ticker":ticker,"name":name,"price":None,
+                "direction":"NEUTRAL","score":0,"strength":0,
+                "score_detail":{"momentum":0,"trend":0,"structure":0},
+                "confirming_groups":0,"market_phase":"—","high_volatility":False,
+                "signals":[],"indicators":{},"analyst":{},"chart_data":[],
+                "support_levels":[],"resistance_levels":[],"timestamp":datetime.now().isoformat()}
     return result
 
 @app.get("/api/price/{ticker}")
@@ -1234,22 +1253,27 @@ def close_trade(req: CloseRequest):
     pos=next((x for x in p["positions"] if x["id"]==req.trade_id),None)
     if not pos: raise HTTPException(404,"Position nicht gefunden")
     lev=pos.get("leverage",1)
-    pnl=((req.close_price-pos["entry_price"])*pos["units"]*lev
-         if pos["direction"]=="BUY" else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
-    # Beide Gebühren abziehen: Eröffnungs-Gebühr (bereits vom Cash abgezogen) + Schließungs-Gebühr
-    total_fees = fee * 2  # Eröffnen + Schließen
-    open_fee   = pos.get("fee", fee)  # beim Öffnen bereits gezahlt
-    close_fee  = fee
-    pnl_net = round(pnl - close_fee, 2)  # nur Schließgebühr vom Brutto-P&L abziehen
+    pnl_gross=((req.close_price-pos["entry_price"])*pos["units"]*lev
+               if pos["direction"]=="BUY"
+               else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
+    open_fee  = pos.get("fee", fee)   # beim Öffnen bereits gezahlt
+    close_fee = fee                   # jetzt beim Schließen fällig
+    total_fees = open_fee + close_fee  # beide zusammen: z.B. 20€
+    # pnl = was nach BEIDEN Gebühren übrig bleibt
+    pnl_net = round(pnl_gross - close_fee, 2)   # nur Schließgebühr subtrahieren
+    # (Öffnungsgebühr wurde bereits beim open_trade vom Cash abgezogen)
     proceeds = round(pos["cost"] + pnl_net, 2)
-    closed={**pos,"close_price":req.close_price,
-            "pnl":pnl_net,                    # Netto-P&L (nach Schließgebühr)
-            "pnl_gross":round(pnl,2),          # Brutto-P&L
-            "pnl_after_all_fees":round(pnl - total_fees + open_fee, 2),  # nach allen Gebühren (inkl. Öffnen)
-            "fees":total_fees,                 # Gesamtgebühren (Öffnen + Schließen)
-            "open_fee":open_fee,"close_fee":close_fee,
-            "pnl_pct":round(pnl_net/pos["cost"]*100,2),"proceeds":proceeds,
-            "closed":datetime.now().isoformat(),"status":"WIN" if pnl_net>0 else "LOSS"}
+    closed={**pos,
+            "close_price":  req.close_price,
+            "pnl":          pnl_net,                    # nach Schließgebühr
+            "pnl_gross":    round(pnl_gross, 2),
+            "fees":         total_fees,                  # 20€ gesamt
+            "open_fee":     open_fee,
+            "close_fee":    close_fee,
+            "pnl_pct":      round(pnl_net/pos["cost"]*100, 2) if pos["cost"] else 0,
+            "proceeds":     proceeds,
+            "closed":       datetime.now().isoformat(),
+            "status":       "WIN" if pnl_net > 0 else "LOSS"}
     p["positions"]=[x for x in p["positions"] if x["id"]!=req.trade_id]
     p["closed_trades"].append(closed); p["cash"]=round(p["cash"]+proceeds,2)
     invalidate_portfolio_cache(); save_portfolio(p); _price_cache.pop(pos["ticker"],None)
