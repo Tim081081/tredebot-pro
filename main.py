@@ -881,45 +881,50 @@ def get_chart(ticker: str, period: str = "3mo"):
 @app.get("/api/watchlist")
 def get_watchlist(region: str = "DE"):
     if region not in REGIONS: region="DE"
-    with _lock: st=dict(_state[region])
-    cfg=load_settings(); ms=cfg["min_strength"]
-    status=st.get("status","idle")
-    all_results=st.get("all_results",[])
-    analyzed={r["ticker"] for r in all_results}
+    try:
+        with _lock: st=dict(_state[region])
+        cfg=load_settings(); ms=cfg["min_strength"]
+        status=st.get("status","idle")
+        all_results=st.get("all_results",[])
+        analyzed={r["ticker"] for r in all_results if isinstance(r,dict)}
 
-    if status=="done":
-        # Analyse abgeschlossen: all_results enthält ALLE Ticker der Region
-        # (entweder mit Signal, NEUTRAL, oder no_data)
-        # Nur noch Ticker die wirklich fehlen als Platzhalter ergänzen
-        missing=[
-            {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
-             "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
-             "rsi":None,"timestamp":None,"below_threshold":False,"pending":False,"no_data":True}
-            for n,t in REGIONS[region].items() if t not in analyzed
-        ]
-        items=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)+missing
-    else:
-        # Analyse läuft noch: Platzhalter für noch nicht verarbeitete Ticker
-        placeholders=[
-            {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
-             "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
-             "rsi":None,"timestamp":None,"below_threshold":False,"pending":True}
-            for n,t in REGIONS[region].items() if t not in analyzed
-        ]
-        analyzed_sorted=sorted(all_results,key=lambda x:x.get("strength",0),reverse=True)
-        items=analyzed_sorted+placeholders
+        if status=="done":
+            missing=[
+                {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+                 "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+                 "rsi":None,"timestamp":None,"below_threshold":False,"pending":False,"no_data":True}
+                for n,t in REGIONS[region].items() if t not in analyzed
+            ]
+            items=sorted(all_results, key=lambda x:(x.get("strength") or 0), reverse=True)+missing
+        else:
+            placeholders=[
+                {"ticker":t,"name":n,"price":None,"direction":"NEUTRAL",
+                 "score":0,"strength":0,"signals":[],"stop_loss":None,"take_profit":None,
+                 "rsi":None,"timestamp":None,"below_threshold":False,"pending":True}
+                for n,t in REGIONS[region].items() if t not in analyzed
+            ]
+            analyzed_sorted=sorted(all_results, key=lambda x:(x.get("strength") or 0), reverse=True)
+            items=analyzed_sorted+placeholders
 
-    total_region=len(REGIONS[region])
-    return {
-        "status":         status,
-        "items":          items,
-        "total":          total_region,
-        "analyzed_count": len(all_results),
-        "pending_count":  total_region-len(analyzed),
-        "region":         region,
-        "min_strength":   ms,
-        "is_complete":    status=="done"
-    }
+        total_region=len(REGIONS[region])
+        return {
+            "status":         status,
+            "items":          items,
+            "total":          total_region,
+            "analyzed_count": len(all_results),
+            "pending_count":  total_region-len(analyzed),
+            "region":         region,
+            "min_strength":   ms,
+            "is_complete":    status=="done"
+        }
+    except Exception as e:
+        # Fehler nicht als 500 werfen sondern leere gültige Antwort zurückgeben
+        return {
+            "status": "idle", "items": [], "total": len(REGIONS.get(region,{})),
+            "analyzed_count": 0, "pending_count": len(REGIONS.get(region,{})),
+            "region": region, "min_strength": 20, "is_complete": False,
+            "error": str(e)
+        }
 
 @app.get("/api/portfolio/backup")
 def backup_ep(): return load_portfolio()

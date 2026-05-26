@@ -673,22 +673,21 @@ function buildChart(data,d){
     ema200Series.setData(ema200Data);
   }
 
-  // Support/Widerstand-Linien
-  const supp=d.support_levels||[], res=d.resistance_levels||[];
+  // Support-Linien: Label links im Chart, nicht auf der Preis-Achse
   supp.forEach((v,i)=>{
     candleSeries.createPriceLine({
-      price:v, color:'rgba(22,163,74,.8)', lineWidth:1.5,
+      price:v, color:'rgba(22,163,74,.7)', lineWidth:1,
       lineStyle:LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible:true,
-      title:'S'+(i+1)+' '+v,
+      axisLabelVisible:false,
+      title:'S'+(i+1),
     });
   });
   res.forEach((v,i)=>{
     candleSeries.createPriceLine({
-      price:v, color:'rgba(220,38,38,.8)', lineWidth:1.5,
+      price:v, color:'rgba(220,38,38,.7)', lineWidth:1,
       lineStyle:LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible:true,
-      title:'R'+(i+1)+' '+v,
+      axisLabelVisible:false,
+      title:'R'+(i+1),
     });
   });
 
@@ -1573,7 +1572,9 @@ async function loadWl(force=false){
         await new Promise(r=>setTimeout(r,5000));
       }
       const r=await fetch(`${API}/api/watchlist?region=${curRegion}`,{signal:AbortSignal.timeout(45000)});
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
       const d=await r.json();
+      if(d.error) console.warn('Watchlist Fehler:', d.error);
       _wlData=d.items||[];
       document.getElementById('wl-region-label').textContent=curRegion;
 
