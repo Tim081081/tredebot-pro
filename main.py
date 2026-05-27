@@ -356,33 +356,58 @@ def save_settings(s: dict):
 def get_s(k): return load_settings().get(k, DEFAULTS[k])
 
 # ── Portfolio (SQLite-basiert) ────────────────────────────────────────────────
+PORTFOLIO_FILE = DB_PATH.replace(".db", "_portfolio.json")
+
+def save_portfolio(p: dict):
+    global _portfolio_cache
+    _portfolio_cache = p
+    data = json.dumps(p)
+    # 1. SQLite (primär)
+    try:
+        with _get_conn() as c:
+            c.execute("INSERT OR REPLACE INTO portfolio (key,value) VALUES ('main',?)", (data,))
+            c.commit()
+    except Exception: pass
+    # 2. JSON-Datei (Fallback – überlebt auch SQLite-Verlust)
+    try:
+        _atomic_write(PORTFOLIO_FILE, p)
+    except Exception: pass
+    # 3. Notfall-Backup in /tmp (immer verfügbar)
+    try:
+        _atomic_write("/tmp/portfolio_backup.json", p)
+    except Exception: pass
+
 def load_portfolio() -> dict:
     global _portfolio_cache
     if _portfolio_cache is not None:
         return _portfolio_cache
+    # 1. SQLite
     try:
         with _get_conn() as c:
             row = c.execute("SELECT value FROM portfolio WHERE key='main'").fetchone()
             if row:
-                _portfolio_cache = json.loads(row["value"])
-                return _portfolio_cache
+                p = json.loads(row["value"])
+                if p.get("positions") is not None:  # gültig
+                    _portfolio_cache = p
+                    return _portfolio_cache
     except Exception: pass
+    # 2. JSON-Datei
+    for path in [PORTFOLIO_FILE, "/tmp/portfolio_backup.json"]:
+        try:
+            if os.path.exists(path):
+                with open(path) as f:
+                    p = json.load(f)
+                if p.get("positions") is not None:
+                    _portfolio_cache = p
+                    save_portfolio(p)  # zurück in SQLite schreiben
+                    return _portfolio_cache
+        except Exception: pass
+    # 3. Neues Portfolio anlegen
     sc = get_s("start_capital")
     p = {"cash": sc, "start_capital": sc, "positions": [], "closed_trades": [],
          "created": datetime.now().isoformat()}
     save_portfolio(p)
     return p
-
-def save_portfolio(p: dict):
-    global _portfolio_cache
-    _portfolio_cache = p
-    try:
-        with _get_conn() as c:
-            c.execute("INSERT OR REPLACE INTO portfolio (key,value) VALUES ('main',?)",
-                      (json.dumps(p),))
-            c.commit()
-    except Exception:
-        _atomic_write("/tmp/portfolio_backup.json", p)
 
 def invalidate_portfolio_cache():
     global _portfolio_cache
@@ -1010,7 +1035,16 @@ def get_watchlist(region: str = "DE"):
             "error": str(e)
         }
 
-@app.get("/api/portfolio/backup")
+@app.get("/api/portfolio/status")
+def portfolio_status():
+    """Gibt zurück ob Portfolio Daten enthält – für Frontend-Restore-Entscheidung."""
+    p = load_portfolio()
+    has_data = (len(p.get("positions",[])) > 0 or
+                len(p.get("closed_trades",[])) > 0 or
+                abs(p.get("cash",0) - p.get("start_capital",10000)) > 0.01)
+    return {"has_data": has_data, "positions": len(p.get("positions",[])),
+            "trades": len(p.get("closed_trades",[])), "cash": p.get("cash",0),
+            "start_capital": p.get("start_capital",10000)}
 def backup_ep(): return load_portfolio()
 
 @app.post("/api/portfolio/restore")
