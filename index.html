@@ -1851,7 +1851,6 @@ async function restoreP(){
   let bd;
   try{ bd=JSON.parse(bk); }catch(e){ return; }
 
-  // Backup nur verwenden wenn echte Daten enthalten
   const backupHasData=(
     (bd.positions?.length||0)>0 ||
     (bd.closed_trades?.length||0)>0 ||
@@ -1859,22 +1858,34 @@ async function restoreP(){
   );
   if(!backupHasData) return;
 
-  try{
-    // Schneller Status-Check statt vollständiges Portfolio laden
-    const r=await fetch(`${API}/api/portfolio/status`,{signal:AbortSignal.timeout(10000)});
-    if(!r.ok) return;
-    const status=await r.json();
+  // Bis zu 5 Versuche – Server könnte noch schlafen
+  for(let attempt=1; attempt<=5; attempt++){
+    try{
+      const r=await fetch(`${API}/api/portfolio/status`,{signal:AbortSignal.timeout(12000)});
+      if(!r.ok){ await new Promise(res=>setTimeout(res,5000)); continue; }
+      const status=await r.json();
 
-    if(!status.has_data){
-      const res=await fetch(`${API}/api/portfolio/restore`,{
-        method:'POST',headers:{'Content-Type':'application/json'},body:bk
-      });
-      if(res.ok){
-        toast('📂 Portfolio wiederhergestellt','ok');
-        setTimeout(loadPortfolio,500);
+      if(!status.has_data){
+        const res=await fetch(`${API}/api/portfolio/restore`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: bk
+        });
+        if(res.ok){
+          toast('📂 Portfolio wiederhergestellt','ok');
+          setTimeout(loadPortfolio,500);
+          return;
+        }
+      } else {
+        // Server hat bereits Daten → kein Restore nötig, Backup aktualisieren
+        backupP();
+        return;
       }
+    }catch(e){
+      // Server schläft noch → warten und erneut versuchen
+      await new Promise(res=>setTimeout(res,5000));
     }
-  }catch(e){}
+  }
 }
 
 // ── Signale cachen (Problem 4) ────────────────────────────────────────────────

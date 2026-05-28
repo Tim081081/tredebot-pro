@@ -1045,6 +1045,7 @@ def portfolio_status():
     return {"has_data": has_data, "positions": len(p.get("positions",[])),
             "trades": len(p.get("closed_trades",[])), "cash": p.get("cash",0),
             "start_capital": p.get("start_capital",10000)}
+@app.get("/api/portfolio/backup")
 def backup_ep(): return load_portfolio()
 
 @app.post("/api/portfolio/restore")
