@@ -355,8 +355,11 @@ _chart_cache:     dict = {}
 _df_cache:        dict = {}
 _df_lock          = Lock()
 
-# Beim Start: gespeicherte Analyse-Ergebnisse laden
-Thread(target=_init_state_from_db, daemon=True).start()
+# Beim Start: gespeicherte Analyse-Ergebnisse synchron laden (nicht im Thread!)
+try:
+    _init_state_from_db()
+except Exception:
+    pass
 
 # ── Atomares File-Write ───────────────────────────────────────────────────────
 def _atomic_write(path: str, data: dict):
@@ -368,7 +371,7 @@ def _atomic_write(path: str, data: dict):
 # ── Settings (doppelte Persistenz: SQLite primär + JSON-Datei Fallback) ───────
 def load_settings() -> dict:
     try:
-        row = _db_execute("SELECT value FROM portfolio WHERE key='settings'", fetchone=True)
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", ('settings',), fetchone=True)
         if row:
             return {**DEFAULTS, **json.loads(row["value"])}
     except Exception: pass
@@ -402,20 +405,15 @@ def save_analysis_state(region: str, state: dict):
         "timestamp":      state.get("timestamp"),
     }
     key = f"analysis_{region}"
-    upsert = ("INSERT INTO portfolio (key,value) VALUES (%s,%s) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-              if USE_POSTGRES else
-              "INSERT OR REPLACE INTO portfolio (key,value) VALUES (?,?)")
     try:
-        _db_execute(upsert, (key, json.dumps(to_save)), commit=True)
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, json.dumps(to_save)), commit=True)
     except Exception: pass
 
 def load_analysis_state(region: str) -> dict | None:
-    """Lädt gespeicherte Analyse-Ergebnisse einer Region aus der Datenbank."""
     key = f"analysis_{region}"
     try:
-        row = _db_execute("SELECT value FROM portfolio WHERE key=%s" if USE_POSTGRES
-                          else "SELECT value FROM portfolio WHERE key=?",
-                          (key,), fetchone=True)
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", (key,), fetchone=True)
         if row:
             return json.loads(row["value"])
     except Exception: pass
@@ -444,14 +442,19 @@ def save_portfolio(p: dict):
     global _portfolio_cache
     _portfolio_cache = p
     data = json.dumps(p)
-    upsert = ("INSERT INTO portfolio (key,value) VALUES ('main',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-              if USE_POSTGRES else
-              "INSERT OR REPLACE INTO portfolio (key,value) VALUES ('main',?)")
     try:
-        _db_execute(upsert, (data,), commit=True)
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ('main', data), commit=True)
     except Exception: pass
-    # JSON-Datei als Fallback
     try: _atomic_write(PORTFOLIO_FILE, p)
+    except Exception: pass
+
+def save_settings(s: dict):
+    try:
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ('settings', json.dumps(s)), commit=True)
+    except Exception: pass
+    try: _atomic_write(SETTINGS_FILE, s)
     except Exception: pass
 
 def load_portfolio() -> dict:
@@ -459,14 +462,13 @@ def load_portfolio() -> dict:
     if _portfolio_cache is not None:
         return _portfolio_cache
     try:
-        row = _db_execute("SELECT value FROM portfolio WHERE key='main'", fetchone=True)
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", ('main',), fetchone=True)
         if row:
             p = json.loads(row["value"])
             if p.get("positions") is not None:
                 _portfolio_cache = p
                 return _portfolio_cache
     except Exception: pass
-    # JSON-Datei Fallback
     for path in [PORTFOLIO_FILE, "/tmp/portfolio_backup.json"]:
         try:
             if os.path.exists(path):
