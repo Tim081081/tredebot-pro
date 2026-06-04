@@ -391,8 +391,6 @@ def save_settings(s: dict):
     except Exception: pass
 
 def save_analysis_state(region: str, state: dict):
-    """Speichert Analyse-Ergebnisse einer Region in der Datenbank."""
-    # chart_data weglassen – zu groß und nicht nötig für Watchlist/Signale
     def strip_chart(items):
         return [{k:v for k,v in item.items() if k!="chart_data"} for item in (items or [])]
     to_save = {
@@ -404,18 +402,27 @@ def save_analysis_state(region: str, state: dict):
         "timestamp":      state.get("timestamp"),
     }
     key = f"analysis_{region}"
+    idx = [r.get("ticker") for r in to_save["all_results"] if r.get("ticker","").startswith("^")]
+    print(f"[SAVE] {region}: {len(to_save['all_results'])} items, indices={idx}", flush=True)
     try:
         _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (key, json.dumps(to_save)), commit=True)
-    except Exception: pass
+        print(f"[SAVE] {region}: OK", flush=True)
+    except Exception as e:
+        print(f"[SAVE] {region}: FEHLER {e}", flush=True)
 
 def load_analysis_state(region: str) -> dict | None:
     key = f"analysis_{region}"
     try:
         row = _db_execute("SELECT value FROM portfolio WHERE key=?", (key,), fetchone=True)
         if row:
-            return json.loads(row["value"])
-    except Exception: pass
+            data = json.loads(row["value"])
+            idx = [r.get("ticker") for r in data.get("all_results",[]) if r.get("ticker","").startswith("^")]
+            print(f"[LOAD] {region}: {len(data.get('all_results',[]))} items, indices={idx}", flush=True)
+            return data
+        print(f"[LOAD] {region}: kein Eintrag", flush=True)
+    except Exception as e:
+        print(f"[LOAD] {region}: FEHLER {e}", flush=True)
     return None
 
 def _init_state_from_db():
