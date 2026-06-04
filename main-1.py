@@ -508,18 +508,27 @@ def fetch_ohlcv(ticker: str, period: str = "6mo", timeout: int = 10):
     with _df_lock:
         c = _df_cache.get(key)
         if c and now - c["ts"] < CHART_CACHE_TTL: return c["df"]
-    try:
-        df = yf.download(ticker, period=period, interval="1d",
-                         progress=False, auto_adjust=True, timeout=timeout)
-        if df is None or df.empty: return None
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-        with _df_lock:
-            if len(_df_cache) >= DF_CACHE_MAX:
-                for k in sorted(_df_cache, key=lambda x: _df_cache[x]["ts"])[:60]:
-                    del _df_cache[k]
-            _df_cache[key] = {"df": df, "ts": now}
-        return df
-    except Exception: return None
+    # Bis zu 3 Versuche bei Rate-Limit-Fehler
+    for attempt in range(3):
+        try:
+            df = yf.download(ticker, period=period, interval="1d",
+                             progress=False, auto_adjust=True, timeout=timeout)
+            if df is None or df.empty: return None
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+            with _df_lock:
+                if len(_df_cache) >= DF_CACHE_MAX:
+                    for k in sorted(_df_cache, key=lambda x: _df_cache[x]["ts"])[:60]:
+                        del _df_cache[k]
+                _df_cache[key] = {"df": df, "ts": now}
+            return df
+        except Exception as e:
+            if "Too Many Requests" in str(e) or "Rate" in str(e):
+                wait = (attempt + 1) * 5  # 5s, 10s, 15s
+                print(f"[RATE_LIMIT] {ticker}: warte {wait}s...", flush=True)
+                time.sleep(wait)
+            else:
+                return None
+    return None
 
 # ── Indikatoren ───────────────────────────────────────────────────────────────
 def compute_indicators(c, h, l, v, cfg: dict) -> dict:
@@ -904,7 +913,7 @@ def run_analysis(region: str, min_strength: int) -> None:
             if i%5==4 or i==total-1:
                 with _lock:
                     _state[region]["progress"]=round((i+1)/total*100)
-                time.sleep(.2); gc.collect()
+                time.sleep(1.0); gc.collect()  # 1s Pause gegen yfinance Rate Limiting
 
         # Sicheres Sortieren: None-Werte als 0 behandeln
         rs_strong=sorted(strong_results, key=lambda x: x.get("strength") or 0, reverse=True)
