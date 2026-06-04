@@ -1748,7 +1748,7 @@ function renderWl(statusHint=''){
   let html = statusHint;
 
   // ── Indizes oben ──────────────────────────────────────────────────────────
-  if(indices.length && (_wlFilter==='all'||_wlFilter==='NEUTRAL')){
+  if(indices.length){
     html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px">
       📊 Marktindizes
     </div>`;
@@ -1762,15 +1762,16 @@ function renderWl(statusHint=''){
       const arrow=isUp?'▲':isDown?'▼':'—';
       const str=s.strength||0;
       const sc=str>=50?'var(--ora)':str>=20?'var(--blue)':'var(--t3)';
+      const noDataHint=s.no_data?` <span style="font-size:9px;color:var(--t3)">(keine Daten)</span>`:'';
       return `<div class="wl-row neutral" onclick="openDetail(window._wlI[${idx}])"
-        style="border-left:3px solid ${col};cursor:pointer">
+        style="border-left:3px solid ${col};cursor:pointer;${s.no_data?'opacity:.5':''}">
         <div style="flex:1;min-width:0">
-          <div class="wn" style="font-weight:700">${s.name}</div>
+          <div class="wn" style="font-weight:700">${s.name}${noDataHint}</div>
           <div class="wt">${s.ticker}</div>
         </div>
         <div style="text-align:right">
           <div style="font-family:monospace;font-size:13px;font-weight:700">${price}</div>
-          <div style="font-size:10px;color:${sc};font-weight:700">${str}/100</div>
+          ${str>0?`<div style="font-size:10px;color:${sc};font-weight:700">${str}/100</div>`:''}
         </div>
         <span style="margin-left:10px;font-size:16px;color:${col};font-weight:700">${arrow}</span>
       </div>`;

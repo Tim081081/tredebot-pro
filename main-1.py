@@ -876,10 +876,18 @@ def run_analysis(region: str, min_strength: int) -> None:
                     sig["direction"] != "NEUTRAL"):
                     strong_results.append(sig)
             else:
+                # Für Index-Ticker (^) zumindest den aktuellen Preis laden
+                idx_price = None
+                if ticker.startswith('^'):
+                    try:
+                        df_idx = fetch_ohlcv(ticker, period="5d", timeout=6)
+                        if df_idx is not None and not df_idx.empty:
+                            idx_price = round(float(df_idx["Close"].iloc[-1]), 2)
+                    except Exception: pass
                 all_results.append({
-                    "ticker":ticker,"name":name,"price":None,
+                    "ticker":ticker,"name":name,"price":idx_price,
                     "direction":"NEUTRAL","score":0,"strength":0,
-                    "below_threshold":True,"no_signal":True,"no_data":True,
+                    "below_threshold":True,"no_signal":True,"no_data": idx_price is None,
                     "signals":[],"stop_loss":None,"take_profit":None,
                     "rsi":None,"atr":None,"timestamp":datetime.now().isoformat(),
                     "support_levels":[],"resistance_levels":[],"high_volatility":False,
