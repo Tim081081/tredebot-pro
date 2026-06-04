@@ -116,7 +116,6 @@ REGIONS = {
         # TechDAX (bereinigt – nur aktive, liquide XETRA-Ticker)
         "AIXTRON":          "AIXA.DE",
         "Cancom":           "COK.DE",
-        "CompuGroup Med":   "COP.DE",
         "Drägerwerk":       "DRW3.DE",
         "Energiekontor":    "EKT.DE",
         "Evotec":           "EVT.DE",
@@ -675,14 +674,12 @@ def calc_position_size(cash,total,price,stop_loss,invest_amount,cfg):
 
 # ── Quick-Score & Analyse ─────────────────────────────────────────────────────
 def quick_score(ticker, name, min_strength, cfg, include_weak=False):
-    """
-    Gibt immer ein Ergebnis zurück wenn Daten vorhanden sind:
-    - Mit Signal: direction=BUY/SELL, strength>0
-    - Ohne Signal (NEUTRAL): direction=NEUTRAL, strength=0
-    Nur für Signale-Tab wird nach min_strength gefiltert.
-    """
-    df=fetch_ohlcv(ticker,period="6mo")
-    if df is None or len(df)<60: return None
+    is_index = ticker.startswith('^')
+    # Indizes: 1 Jahr Daten holen (mehr Datenpunkte, stabilere Indikatoren)
+    period = "1y" if is_index else "6mo"
+    min_bars = 20 if is_index else 60
+    df=fetch_ohlcv(ticker, period=period)
+    if df is None or len(df)<min_bars: return None
     try:
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
@@ -728,8 +725,9 @@ def full_analysis(ticker,name,min_strength=0):
     cfg=load_settings(); now=time.time()
     cached=_detail_cache.get(ticker)
     if cached and now-cached["ts"]<DETAIL_CACHE_TTL: return cached["result"]
+    is_index = ticker.startswith('^')
     df=fetch_ohlcv(ticker,period="1y")
-    if df is None or len(df)<60: return None
+    if df is None or len(df)<(20 if is_index else 60): return None
     try:
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
