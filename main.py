@@ -27,6 +27,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+# PostgreSQL wenn DATABASE_URL gesetzt, sonst SQLite
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+USE_POSTGRES  = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
 app = FastAPI(title="TradeBot Pro", version="13.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -108,7 +116,6 @@ REGIONS = {
         # TechDAX (bereinigt – nur aktive, liquide XETRA-Ticker)
         "AIXTRON":          "AIXA.DE",
         "Cancom":           "COK.DE",
-        "CompuGroup Med":   "COP.DE",
         "Drägerwerk":       "DRW3.DE",
         "Energiekontor":    "EKT.DE",
         "Evotec":           "EVT.DE",
@@ -268,11 +275,7 @@ for _reg in REGIONS.values():
         TICKER_TO_NAME[_t] = _n
         VALID_TICKERS.add(_t)
 
-# ── Persistenz: SQLite ───────────────────────────────────────────────────────
-# WICHTIG: /opt/render/project/src wird bei jedem Deploy überschrieben → NICHT verwenden
-# Render Persistent Disk mountet nach /data → ideal
-# Fallback: Home-Verzeichnis des Prozesses → überlebt Sleeps, nicht Deploys
-# Letzter Fallback: /tmp → geht bei jedem Restart verloren
+# ── Persistenz: PostgreSQL (primär) oder SQLite (Fallback) ───────────────────
 def _get_db_path() -> str:
     for candidate in ["/data", os.path.expanduser("~/.tradebot")]:
         try:
@@ -283,32 +286,66 @@ def _get_db_path() -> str:
             pass
     return "/tmp/tradebot.db"
 
-DB_PATH      = _get_db_path()
+DB_PATH       = _get_db_path()
 SETTINGS_FILE = DB_PATH.replace(".db", "_settings.json")
+PORTFOLIO_FILE= DB_PATH.replace(".db", "_portfolio.json")
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_conn():
+    """Gibt eine DB-Verbindung zurück – PostgreSQL wenn verfügbar, sonst SQLite."""
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        return conn
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def _db_execute(sql: str, params=(), fetchone=False, fetchall=False, commit=False):
+    """Einheitliche DB-Abfrage für PostgreSQL und SQLite."""
+    if USE_POSTGRES:
+        # PostgreSQL: ? → %s
+        sql = sql.replace("?", "%s")
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        result = None
+        if fetchone:
+            row = cur.fetchone()
+            result = dict(row) if row else None
+        elif fetchall:
+            rows = cur.fetchall()
+            result = [dict(r) for r in rows] if rows else []
+        if commit:
+            conn.commit()
+        conn.close()
+        return result
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        raise e
 
 def _init_db():
-    with _get_conn() as c:
-        c.execute("""CREATE TABLE IF NOT EXISTS portfolio (
-            key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS trades (
-            id TEXT PRIMARY KEY, data TEXT NOT NULL, status TEXT DEFAULT 'open',
-            created TEXT NOT NULL, closed TEXT)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS push_subs (
-            endpoint TEXT PRIMARY KEY, sub TEXT NOT NULL)""")
-        c.commit()
+    if USE_POSTGRES:
+        _db_execute("""CREATE TABLE IF NOT EXISTS portfolio (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL)""", commit=True)
+    else:
+        with _get_conn() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS portfolio (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS trades (
+                id TEXT PRIMARY KEY, data TEXT NOT NULL, status TEXT DEFAULT 'open',
+                created TEXT NOT NULL, closed TEXT)""")
+            c.commit()
 
 _init_db()
 
+def get_s(k): return load_settings().get(k, DEFAULTS[k])
+
 # ── In-Memory Caches & Analyse-State ─────────────────────────────────────────
 _lock       = Lock()
-# State pro Region: {"DE":{status,progress,results,...}, ...}
-_state: dict = {r: {"status":"idle","progress":0,"results":[],"timestamp":None} for r in REGIONS}
-_active_region = "DE"   # Zuletzt manuell gestartete Region
+_state: dict = {r: {"status":"idle","progress":0,"results":[],"all_results":[],"timestamp":None} for r in REGIONS}
+_active_region = "DE"
 
 _portfolio_cache: dict | None = None
 _price_cache:     dict = {}
@@ -316,6 +353,12 @@ _detail_cache:    dict = {}
 _chart_cache:     dict = {}
 _df_cache:        dict = {}
 _df_lock          = Lock()
+
+# Beim Start: gespeicherte Analyse-Ergebnisse synchron laden (nicht im Thread!)
+try:
+    _init_state_from_db()
+except Exception:
+    pass
 
 # ── Atomares File-Write ───────────────────────────────────────────────────────
 def _atomic_write(path: str, data: dict):
@@ -326,14 +369,11 @@ def _atomic_write(path: str, data: dict):
 
 # ── Settings (doppelte Persistenz: SQLite primär + JSON-Datei Fallback) ───────
 def load_settings() -> dict:
-    # 1. SQLite (überlebt Neustarts auf Render auch ohne Disk)
     try:
-        with _get_conn() as c:
-            row = c.execute("SELECT value FROM portfolio WHERE key='settings'").fetchone()
-            if row:
-                return {**DEFAULTS, **json.loads(row["value"])}
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", ('settings',), fetchone=True)
+        if row:
+            return {**DEFAULTS, **json.loads(row["value"])}
     except Exception: pass
-    # 2. JSON-Datei Fallback
     try:
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE) as f:
@@ -342,18 +382,64 @@ def load_settings() -> dict:
     return dict(DEFAULTS)
 
 def save_settings(s: dict):
-    # In beide Speicher schreiben
     try:
-        with _get_conn() as c:
-            c.execute("INSERT OR REPLACE INTO portfolio (key,value) VALUES ('settings',?)",
-                      (json.dumps(s),))
-            c.commit()
+        _db_execute("INSERT INTO portfolio (key,value) VALUES ('settings',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value" if USE_POSTGRES
+                    else "INSERT OR REPLACE INTO portfolio (key,value) VALUES ('settings',?)",
+                    (json.dumps(s),), commit=True)
     except Exception: pass
-    try:
-        _atomic_write(SETTINGS_FILE, s)
+    try: _atomic_write(SETTINGS_FILE, s)
     except Exception: pass
 
-def get_s(k): return load_settings().get(k, DEFAULTS[k])
+def save_analysis_state(region: str, state: dict):
+    def strip_chart(items):
+        return [{k:v for k,v in item.items() if k!="chart_data"} for item in (items or [])]
+    to_save = {
+        "status":         state.get("status"),
+        "results":        strip_chart(state.get("results",[])),
+        "all_results":    strip_chart(state.get("all_results",[])),
+        "signals_found":  state.get("signals_found",0),
+        "total_analyzed": state.get("total_analyzed",0),
+        "timestamp":      state.get("timestamp"),
+    }
+    key = f"analysis_{region}"
+    idx = [r.get("ticker") for r in to_save["all_results"] if r.get("ticker","").startswith("^")]
+    print(f"[SAVE] {region}: {len(to_save['all_results'])} items, indices={idx}", flush=True)
+    try:
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, json.dumps(to_save)), commit=True)
+        print(f"[SAVE] {region}: OK", flush=True)
+    except Exception as e:
+        print(f"[SAVE] {region}: FEHLER {e}", flush=True)
+
+def load_analysis_state(region: str) -> dict | None:
+    key = f"analysis_{region}"
+    try:
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", (key,), fetchone=True)
+        if row:
+            data = json.loads(row["value"])
+            idx = [r.get("ticker") for r in data.get("all_results",[]) if r.get("ticker","").startswith("^")]
+            print(f"[LOAD] {region}: {len(data.get('all_results',[]))} items, indices={idx}", flush=True)
+            return data
+        print(f"[LOAD] {region}: kein Eintrag", flush=True)
+    except Exception as e:
+        print(f"[LOAD] {region}: FEHLER {e}", flush=True)
+    return None
+
+def _init_state_from_db():
+    """Beim Server-Start: gespeicherte Analyse-Ergebnisse in _state laden."""
+    for region in REGIONS:
+        saved = load_analysis_state(region)
+        if saved and saved.get("all_results"):
+            with _lock:
+                _state[region].update({
+                    "status":         "done",
+                    "progress":       100,
+                    "results":        saved.get("results", []),
+                    "all_results":    saved.get("all_results", []),
+                    "signals_found":  saved.get("signals_found", 0),
+                    "total_analyzed": saved.get("total_analyzed", 0),
+                    "timestamp":      saved.get("timestamp"),
+                })
 
 # ── Portfolio (SQLite-basiert) ────────────────────────────────────────────────
 PORTFOLIO_FILE = DB_PATH.replace(".db", "_portfolio.json")
@@ -362,36 +448,33 @@ def save_portfolio(p: dict):
     global _portfolio_cache
     _portfolio_cache = p
     data = json.dumps(p)
-    # 1. SQLite (primär)
     try:
-        with _get_conn() as c:
-            c.execute("INSERT OR REPLACE INTO portfolio (key,value) VALUES ('main',?)", (data,))
-            c.commit()
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ('main', data), commit=True)
     except Exception: pass
-    # 2. JSON-Datei (Fallback – überlebt auch SQLite-Verlust)
-    try:
-        _atomic_write(PORTFOLIO_FILE, p)
+    try: _atomic_write(PORTFOLIO_FILE, p)
     except Exception: pass
-    # 3. Notfall-Backup in /tmp (immer verfügbar)
+
+def save_settings(s: dict):
     try:
-        _atomic_write("/tmp/portfolio_backup.json", p)
+        _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ('settings', json.dumps(s)), commit=True)
+    except Exception: pass
+    try: _atomic_write(SETTINGS_FILE, s)
     except Exception: pass
 
 def load_portfolio() -> dict:
     global _portfolio_cache
     if _portfolio_cache is not None:
         return _portfolio_cache
-    # 1. SQLite
     try:
-        with _get_conn() as c:
-            row = c.execute("SELECT value FROM portfolio WHERE key='main'").fetchone()
-            if row:
-                p = json.loads(row["value"])
-                if p.get("positions") is not None:  # gültig
-                    _portfolio_cache = p
-                    return _portfolio_cache
+        row = _db_execute("SELECT value FROM portfolio WHERE key=?", ('main',), fetchone=True)
+        if row:
+            p = json.loads(row["value"])
+            if p.get("positions") is not None:
+                _portfolio_cache = p
+                return _portfolio_cache
     except Exception: pass
-    # 2. JSON-Datei
     for path in [PORTFOLIO_FILE, "/tmp/portfolio_backup.json"]:
         try:
             if os.path.exists(path):
@@ -399,10 +482,9 @@ def load_portfolio() -> dict:
                     p = json.load(f)
                 if p.get("positions") is not None:
                     _portfolio_cache = p
-                    save_portfolio(p)  # zurück in SQLite schreiben
+                    save_portfolio(p)
                     return _portfolio_cache
         except Exception: pass
-    # 3. Neues Portfolio anlegen
     sc = get_s("start_capital")
     p = {"cash": sc, "start_capital": sc, "positions": [], "closed_trades": [],
          "created": datetime.now().isoformat()}
@@ -426,18 +508,27 @@ def fetch_ohlcv(ticker: str, period: str = "6mo", timeout: int = 10):
     with _df_lock:
         c = _df_cache.get(key)
         if c and now - c["ts"] < CHART_CACHE_TTL: return c["df"]
-    try:
-        df = yf.download(ticker, period=period, interval="1d",
-                         progress=False, auto_adjust=True, timeout=timeout)
-        if df is None or df.empty: return None
-        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-        with _df_lock:
-            if len(_df_cache) >= DF_CACHE_MAX:
-                for k in sorted(_df_cache, key=lambda x: _df_cache[x]["ts"])[:60]:
-                    del _df_cache[k]
-            _df_cache[key] = {"df": df, "ts": now}
-        return df
-    except Exception: return None
+    for attempt in range(3):
+        try:
+            df = yf.download(ticker, period=period, interval="1d",
+                             progress=False, auto_adjust=True, timeout=timeout)
+            if df is None or df.empty:
+                if attempt < 2:
+                    time.sleep(3)
+                    continue
+                return None
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+            with _df_lock:
+                if len(_df_cache) >= DF_CACHE_MAX:
+                    for k in sorted(_df_cache, key=lambda x: _df_cache[x]["ts"])[:60]:
+                        del _df_cache[k]
+                _df_cache[key] = {"df": df, "ts": now}
+            return df
+        except Exception as e:
+            wait = (attempt + 1) * 8
+            print(f"[RETRY] {ticker} attempt {attempt+1}: {str(e)[:50]}, wait {wait}s", flush=True)
+            time.sleep(wait)
+    return None
 
 # ── Indikatoren ───────────────────────────────────────────────────────────────
 def compute_indicators(c, h, l, v, cfg: dict) -> dict:
@@ -599,14 +690,12 @@ def calc_position_size(cash,total,price,stop_loss,invest_amount,cfg):
 
 # ── Quick-Score & Analyse ─────────────────────────────────────────────────────
 def quick_score(ticker, name, min_strength, cfg, include_weak=False):
-    """
-    Gibt immer ein Ergebnis zurück wenn Daten vorhanden sind:
-    - Mit Signal: direction=BUY/SELL, strength>0
-    - Ohne Signal (NEUTRAL): direction=NEUTRAL, strength=0
-    Nur für Signale-Tab wird nach min_strength gefiltert.
-    """
-    df=fetch_ohlcv(ticker,period="6mo")
-    if df is None or len(df)<60: return None
+    is_index = ticker.startswith('^')
+    # Indizes: 1 Jahr Daten holen (mehr Datenpunkte, stabilere Indikatoren)
+    period = "1y" if is_index else "6mo"
+    min_bars = 20 if is_index else 60
+    df=fetch_ohlcv(ticker, period=period)
+    if df is None or len(df)<min_bars: return None
     try:
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
@@ -652,8 +741,9 @@ def full_analysis(ticker,name,min_strength=0):
     cfg=load_settings(); now=time.time()
     cached=_detail_cache.get(ticker)
     if cached and now-cached["ts"]<DETAIL_CACHE_TTL: return cached["result"]
+    is_index = ticker.startswith('^')
     df=fetch_ohlcv(ticker,period="1y")
-    if df is None or len(df)<60: return None
+    if df is None or len(df)<(20 if is_index else 60): return None
     try:
         c=df["Close"].squeeze(); h=df["High"].squeeze(); l=df["Low"].squeeze()
         v=df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(np.ones(len(c)),index=c.index)
@@ -802,10 +892,18 @@ def run_analysis(region: str, min_strength: int) -> None:
                     sig["direction"] != "NEUTRAL"):
                     strong_results.append(sig)
             else:
+                # Für Index-Ticker (^) zumindest den aktuellen Preis laden
+                idx_price = None
+                if ticker.startswith('^'):
+                    try:
+                        df_idx = fetch_ohlcv(ticker, period="5d", timeout=6)
+                        if df_idx is not None and not df_idx.empty:
+                            idx_price = round(float(df_idx["Close"].iloc[-1]), 2)
+                    except Exception: pass
                 all_results.append({
-                    "ticker":ticker,"name":name,"price":None,
+                    "ticker":ticker,"name":name,"price":idx_price,
                     "direction":"NEUTRAL","score":0,"strength":0,
-                    "below_threshold":True,"no_signal":True,"no_data":True,
+                    "below_threshold":True,"no_signal":True,"no_data": idx_price is None,
                     "signals":[],"stop_loss":None,"take_profit":None,
                     "rsi":None,"atr":None,"timestamp":datetime.now().isoformat(),
                     "support_levels":[],"resistance_levels":[],"high_volatility":False,
@@ -815,7 +913,7 @@ def run_analysis(region: str, min_strength: int) -> None:
             if i%5==4 or i==total-1:
                 with _lock:
                     _state[region]["progress"]=round((i+1)/total*100)
-                time.sleep(.2); gc.collect()
+                time.sleep(2.0); gc.collect()  # 2s Pause gegen yfinance Rate Limiting
 
         # Sicheres Sortieren: None-Werte als 0 behandeln
         rs_strong=sorted(strong_results, key=lambda x: x.get("strength") or 0, reverse=True)
@@ -844,7 +942,13 @@ def run_analysis(region: str, min_strength: int) -> None:
             "total_analyzed": total,
             "timestamp":      datetime.now().isoformat()
         })
+        state_to_save = dict(_state[region])
     gc.collect()
+    # Ergebnisse dauerhaft in DB speichern (überleben Server-Restarts)
+    try:
+        save_analysis_state(region, state_to_save)
+    except Exception:
+        pass
     try:
         _refresh_exit_signals_cache()
     except Exception:
