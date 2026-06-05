@@ -360,12 +360,6 @@ _chart_cache:     dict = {}
 _df_cache:        dict = {}
 _df_lock          = Lock()
 
-# Beim Start: gespeicherte Analyse-Ergebnisse synchron laden (nicht im Thread!)
-try:
-    _init_state_from_db()
-except Exception:
-    pass
-
 # ── Atomares File-Write ───────────────────────────────────────────────────────
 def _atomic_write(path: str, data: dict):
     dir_ = os.path.dirname(path) or "/tmp"
@@ -437,6 +431,12 @@ def _init_state_from_db():
                     "total_analyzed": saved.get("total_analyzed", 0),
                     "timestamp":      saved.get("timestamp"),
                 })
+
+# Gespeicherte Analyse-Ergebnisse beim Start laden
+try:
+    _init_state_from_db()
+except Exception:
+    pass
 
 # ── Portfolio (SQLite-basiert) ────────────────────────────────────────────────
 PORTFOLIO_FILE = DB_PATH.replace(".db", "_portfolio.json")
