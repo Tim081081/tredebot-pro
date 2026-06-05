@@ -408,27 +408,18 @@ def save_analysis_state(region: str, state: dict):
         "timestamp":      state.get("timestamp"),
     }
     key = f"analysis_{region}"
-    idx = [r.get("ticker") for r in to_save["all_results"] if r.get("ticker","").startswith("^")]
-    print(f"[SAVE] {region}: {len(to_save['all_results'])} items, indices={idx}", flush=True)
     try:
         _db_execute("INSERT INTO portfolio (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (key, json.dumps(to_save)), commit=True)
-        print(f"[SAVE] {region}: OK", flush=True)
-    except Exception as e:
-        print(f"[SAVE] {region}: FEHLER {e}", flush=True)
+    except Exception: pass
 
 def load_analysis_state(region: str) -> dict | None:
     key = f"analysis_{region}"
     try:
         row = _db_execute("SELECT value FROM portfolio WHERE key=?", (key,), fetchone=True)
         if row:
-            data = json.loads(row["value"])
-            idx = [r.get("ticker") for r in data.get("all_results",[]) if r.get("ticker","").startswith("^")]
-            print(f"[LOAD] {region}: {len(data.get('all_results',[]))} items, indices={idx}", flush=True)
-            return data
-        print(f"[LOAD] {region}: kein Eintrag", flush=True)
-    except Exception as e:
-        print(f"[LOAD] {region}: FEHLER {e}", flush=True)
+            return json.loads(row["value"])
+    except Exception: pass
     return None
 
 def _init_state_from_db():
@@ -532,7 +523,6 @@ def fetch_ohlcv(ticker: str, period: str = "6mo", timeout: int = 10):
             return df
         except Exception as e:
             wait = (attempt + 1) * 8
-            print(f"[RETRY] {ticker} attempt {attempt+1}: {str(e)[:50]}, wait {wait}s", flush=True)
             time.sleep(wait)
     return None
 
@@ -1126,14 +1116,6 @@ def get_watchlist(region: str = "DE"):
             items=analyzed_sorted+placeholders
 
         total_region=len(REGIONS[region])
-        idx_in_items=[x.get("ticker") for x in items if x.get("ticker","").startswith("^")]
-        print(f"[WL] {region}: {len(items)} items, status={status}, indices={idx_in_items}", flush=True)
-        # Vollständigen Eintrag für ^-Ticker loggen
-        for x in items:
-            if x.get("ticker","").startswith("^"):
-                t = x.get("ticker","")
-                print(f"[WL-IDX] ticker={repr(t)}, repr_bytes={[hex(ord(c)) for c in t[:3]]}, price={x.get('price')}, dir={x.get('direction')}, no_data={x.get('no_data')}, no_signal={x.get('no_signal')}, below={x.get('below_threshold')}, pending={x.get('pending')}", flush=True)
-                break
         return {
             "status":         status,
             "items":          items,
