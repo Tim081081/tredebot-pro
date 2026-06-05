@@ -1736,6 +1736,9 @@ function renderWl(statusHint=''){
   const indices = _wlData.filter(x=>x.ticker&&x.ticker.startsWith('^'));
   const nonIndices = items.filter(x=>!x.ticker||!x.ticker.startsWith('^'));
 
+  // DEBUG: temporär anzeigen
+  statusHint += `<div style="font-size:10px;color:orange;padding:4px">DEBUG: _wlData=${_wlData.length}, indices=${indices.length}, items=${items.length}, filter=${_wlFilter}</div>`;
+
   // Trenne starke/schwache/neutrale aus nonIndices
   const strong  = nonIndices.filter(x=>!x.pending && !x.below_threshold && x.direction!=='NEUTRAL' && !x.no_signal);
   const weak    = nonIndices.filter(x=>!x.pending &&  x.below_threshold && x.direction!=='NEUTRAL');
