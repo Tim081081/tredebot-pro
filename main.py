@@ -291,10 +291,16 @@ SETTINGS_FILE = DB_PATH.replace(".db", "_settings.json")
 PORTFOLIO_FILE= DB_PATH.replace(".db", "_portfolio.json")
 
 def _get_conn():
-    """Gibt eine DB-Verbindung zurück – PostgreSQL wenn verfügbar, sonst SQLite."""
     if USE_POSTGRES:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-        return conn
+        try:
+            conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+            return conn
+        except Exception as e:
+            print(f"[DB] PostgreSQL nicht erreichbar ({e}), nutze SQLite", flush=True)
+            # Fallback auf SQLite
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
