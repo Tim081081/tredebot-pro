@@ -1128,6 +1128,11 @@ def get_watchlist(region: str = "DE"):
         total_region=len(REGIONS[region])
         idx_in_items=[x.get("ticker") for x in items if x.get("ticker","").startswith("^")]
         print(f"[WL] {region}: {len(items)} items, status={status}, indices={idx_in_items}", flush=True)
+        # Vollständigen Eintrag für ^-Ticker loggen
+        for x in items:
+            if x.get("ticker","").startswith("^"):
+                print(f"[WL-IDX] {x.get('ticker')}: price={x.get('price')}, dir={x.get('direction')}, no_data={x.get('no_data')}, no_signal={x.get('no_signal')}, below={x.get('below_threshold')}, pending={x.get('pending')}", flush=True)
+                break
         return {
             "status":         status,
             "items":          items,

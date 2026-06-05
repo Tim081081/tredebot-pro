@@ -1732,27 +1732,66 @@ function renderWl(statusHint=''){
     return;
   }
 
-  // Trenne starke (über Schwelle) von schwachen
-  const strong  = items.filter(x=>!x.pending && !x.below_threshold && x.direction!=='NEUTRAL');
-  const weak    = items.filter(x=>!x.pending &&  x.below_threshold && x.direction!=='NEUTRAL');
-  const neutral = items.filter(x=>!x.pending && x.direction==='NEUTRAL');
-  const pending = items.filter(x=>x.pending);
+  // Indizes (^-Ticker) immer oben, unabhängig vom Filter
+  const indices = _wlData.filter(x=>x.ticker&&x.ticker.startsWith('^'));
+  const nonIndices = items.filter(x=>!x.ticker||!x.ticker.startsWith('^'));
 
-  const renderItem=(s,idx)=>{
-    // Kein Ticker-Daten verfügbar (delisted etc.)
-    if(s.no_data && !s.pending) return `<div class="wl-row neutral" style="opacity:.35">
-      <div style="flex:1;min-width:0"><div class="wn" style="text-decoration:line-through">${s.name}</div>
-        <div class="wt">${s.ticker} · keine Daten verfügbar</div></div>
-      <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
-      <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊗ N/A</span>
+  // Trenne starke/schwache/neutrale aus nonIndices
+  const strong  = nonIndices.filter(x=>!x.pending && !x.below_threshold && x.direction!=='NEUTRAL' && !x.no_signal);
+  const weak    = nonIndices.filter(x=>!x.pending &&  x.below_threshold && x.direction!=='NEUTRAL');
+  const neutral = nonIndices.filter(x=>!x.pending && (x.direction==='NEUTRAL'||x.no_signal) && !x.no_data);
+  const noData  = nonIndices.filter(x=>x.no_data&&!x.pending);
+  const pending = nonIndices.filter(x=>x.pending);
+
+  window._wlI = _wlData;
+
+  let html = statusHint;
+
+  // ── Indizes oben ──────────────────────────────────────────────────────────
+  if(indices.length){
+    html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px">
+      📊 Marktindizes
     </div>`;
+    html+=indices.map(s=>{
+      const idx=_wlData.indexOf(s);
+      const price=s.price?fmt(s.price):'—';
+      const dir=s.direction||'NEUTRAL';
+      const isUp=dir==='BUY';
+      const isDown=dir==='SELL';
+      const col=isUp?'var(--green)':isDown?'var(--red)':'var(--t3)';
+      const arrow=isUp?'▲':isDown?'▼':'—';
+      const str=s.strength||0;
+      const sc=str>=50?'var(--ora)':str>=20?'var(--blue)':'var(--t3)';
+      const noDataHint=s.no_data?` <span style="font-size:9px;color:var(--t3)">(keine Daten)</span>`:'';
+      return `<div class="wl-row neutral" onclick="openDetail(window._wlI[${idx}])"
+        style="border-left:3px solid ${col};cursor:pointer;${s.no_data?'opacity:.5':''}">
+        <div style="flex:1;min-width:0">
+          <div class="wn" style="font-weight:700">${s.name}${noDataHint}</div>
+          <div class="wt">${s.ticker}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:monospace;font-size:13px;font-weight:700">${price}</div>
+          ${str>0?`<div style="font-size:10px;color:${sc};font-weight:700">${str}/100</div>`:''}
+        </div>
+        <span style="margin-left:10px;font-size:16px;color:${col};font-weight:700">${arrow}</span>
+      </div>`;
+    }).join('');
+  }
 
-    // Noch nicht analysiert (Analyse läuft)
+  const renderItem=(s)=>{
+    if(!s) return '';
+    const idx=_wlData.indexOf(s);
     if(s.pending) return `<div class="wl-row neutral" style="opacity:.4">
       <div style="flex:1;min-width:0"><div class="wn">${s.name}</div>
         <div class="wt">${s.ticker} · noch nicht analysiert</div></div>
       <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
       <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊙ OFFEN</span>
+    </div>`;
+    if(s.no_data) return `<div class="wl-row neutral" style="opacity:.35">
+      <div style="flex:1;min-width:0"><div class="wn" style="text-decoration:line-through">${s.name}</div>
+        <div class="wt">${s.ticker} · keine Daten verfügbar</div></div>
+      <div style="text-align:right;font-size:11px;color:var(--t3)">—</div>
+      <span class="badge" style="background:var(--s2);color:var(--t3);margin-left:8px;font-size:10px">⊗ N/A</span>
     </div>`;
 
     const dir=s.direction||'NEUTRAL';
@@ -1771,7 +1810,6 @@ function renderWl(statusHint=''){
     const sc=s.strength>=70?'var(--green)':s.strength>=50?'var(--ora)':s.strength>=20?'var(--blue)':'var(--t3)';
     const vf=s.high_volatility?'<span style="font-size:9px;color:var(--red);margin-left:3px">⚠️</span>':'';
     const hint=isBelow?`<span style="font-size:9px;color:var(--t3);margin-left:4px">unter Schwelle</span>`:'';
-    window._wlI=window._wlI||[]; window._wlI[idx]=s;
     return `<div class="wl-row ${rc}" style="${isBelow?'opacity:.7':''}" onclick="openDetail(window._wlI[${idx}])">
       <div style="flex:1;min-width:0"><div class="wn">${s.name}${vf}</div><div class="wt">${s.ticker}${hint}</div></div>
       <div style="text-align:right">
@@ -1782,54 +1820,36 @@ function renderWl(statusHint=''){
     </div>`;
   };
 
-  window._wlI=items;
-  let html=statusHint;
-
-  // Starke Signale zuerst (über Mindest-Signalstärke)
   if(strong.length){
-    html+=`<div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px">
+    html+=`<div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">
       ✅ Starke Signale – über Signalstärke-Schwelle (${strong.length})
     </div>`;
-    html+=strong.map((s,i)=>renderItem(s,items.indexOf(s))).join('');
+    html+=strong.map(renderItem).join('');
   }
-
-  // Schwache Signale mit Trennlinie
   if(weak.length && _wlFilter!=='NEUTRAL'){
     html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid var(--b);padding-top:10px">
       Schwache Signale – unter Signalstärke-Schwelle (${weak.length})
     </div>`;
-    html+=weak.map((s)=>renderItem(s,items.indexOf(s))).join('');
+    html+=weak.map(renderItem).join('');
   }
-
-  // Neutrals (kein Signal oder kein Ergebnis)
-  if(_wlFilter==='NEUTRAL'||_wlFilter==='all'){
-    const noData=items.filter(x=>x.no_data&&!x.pending);
-    const neutralOnly=items.filter(x=>!x.pending&&!x.no_data&&(x.direction==='NEUTRAL'||x.no_signal)&&!x.below_threshold);
-
-    if(neutralOnly.length){
-      if(_wlFilter==='all')
-        html+=`<div style="font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid var(--b);padding-top:10px">
-          Kein klares Signal (${neutralOnly.length})
-        </div>`;
-      html+=neutralOnly.map((s)=>renderItem(s,items.indexOf(s))).join('');
-    }
-    if(noData.length){
-      html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;border-top:1px solid var(--b);padding-top:8px">
-        Keine Daten verfügbar (${noData.length})
-      </div>`;
-      html+=noData.map((s)=>renderItem(s,items.indexOf(s))).join('');
-    }
-  }
-
-  // Noch nicht analysiert (Analyse läuft noch)
-  const pendingItems=items.filter(x=>x.pending);
-  if(pendingItems.length){
-    html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px;border-top:1px solid var(--b);padding-top:10px">
-      Noch nicht analysiert (${pendingItems.length})
+  if(neutral.length && (_wlFilter==='NEUTRAL'||_wlFilter==='all')){
+    html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px;border-top:1px solid var(--b);padding-top:8px">
+      Kein klares Signal (${neutral.length})
     </div>`;
-    html+=pendingItems.map((s)=>renderItem(s,items.indexOf(s))).join('');
+    html+=neutral.map(renderItem).join('');
   }
-
+  if(noData.length){
+    html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;border-top:1px solid var(--b);padding-top:8px">
+      Keine Daten verfügbar (${noData.length})
+    </div>`;
+    html+=noData.map(renderItem).join('');
+  }
+  if(pending.length){
+    html+=`<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px;border-top:1px solid var(--b);padding-top:10px">
+      Noch nicht analysiert (${pending.length})
+    </div>`;
+    html+=pending.map(renderItem).join('');
+  }
   c.innerHTML=html;
 }
 
