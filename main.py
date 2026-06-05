@@ -1126,6 +1126,8 @@ def get_watchlist(region: str = "DE"):
             items=analyzed_sorted+placeholders
 
         total_region=len(REGIONS[region])
+        idx_in_items=[x.get("ticker") for x in items if x.get("ticker","").startswith("^")]
+        print(f"[WL] {region}: {len(items)} items, status={status}, indices={idx_in_items}", flush=True)
         return {
             "status":         status,
             "items":          items,
