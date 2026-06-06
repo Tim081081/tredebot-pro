@@ -320,8 +320,6 @@ function showTab(n){
   if(n==='portfolio'||n==='history'){
     loadPortfolio();
     restoreP();
-    // Sofort Kurse + Analyse aktualisieren wenn Portfolio geöffnet wird
-    setTimeout(autoRefreshPortfolio, 500);
   }
   if(n==='watchlist')loadWl(false);
   if(n==='settings')loadSettings();
@@ -1246,15 +1244,17 @@ async function placeMF(i){
 }
 
 // ── Portfolio ─────────────────────────────────────────────────────────────────
+let _portfolioHasData = false;
+
 async function loadPortfolio(){
   return sf('portfolio',async()=>{
     try{
-      // Portfolio sofort laden und anzeigen
-      const pr=await fetch(`${API}/api/portfolio`,{signal:AbortSignal.timeout(15000)});
+      const pr=await fetch(`${API}/api/portfolio`,{signal:AbortSignal.timeout(20000)});
       if(!pr.ok) throw new Error(`HTTP ${pr.status}`);
       const pd=await pr.json();
       const s=pd.stats||{};
       const pnl=s.total_pnl||0;
+      _portfolioHasData = true;
       document.getElementById('p-value').textContent=fmt(s.total_value)+'€';
       const pe=document.getElementById('p-pnl');
       pe.textContent=(pnl>=0?'+':'')+fmt(pnl)+'€';pe.className='sv '+(pnl>=0?'pos':'neg');
@@ -1266,7 +1266,6 @@ async function loadPortfolio(){
       const positions=pd.portfolio?.positions||[];
       renderPositions(positions);renderHistory(pd.portfolio?.closed_trades||[]);
 
-      // Fehlende Basiswert-Einstiegspreise automatisch reparieren
       const hasMissingBase=positions.some(p=>p.is_mini_future&&p.base_entry_price==null);
       if(hasMissingBase){
         fetch(`${API}/api/portfolio/fix-base-prices`,{method:'POST'})
@@ -1275,12 +1274,14 @@ async function loadPortfolio(){
           .catch(()=>{});
       }
     }catch(e){
-      // Portfolio-Fehler anzeigen statt leer lassen
-      document.getElementById('p-value').textContent='—';
-      document.getElementById('p-cash').textContent='—';
+      // Nur "—" zeigen wenn wir noch NIE echte Daten hatten – sonst Anzeige unangetastet lassen
+      if(!_portfolioHasData){
+        document.getElementById('p-value').textContent='—';
+        document.getElementById('p-cash').textContent='—';
+      }
       console.warn('Portfolio laden fehlgeschlagen:',e);
     }
-    // Exit-Signale separat laden – Fehler hier blockieren nicht das Portfolio
+    // Exit-Signale separat laden
     try{
       const er=await fetch(`${API}/api/exit-signals`,{signal:AbortSignal.timeout(20000)});
       if(er.ok){
@@ -1288,8 +1289,9 @@ async function loadPortfolio(){
         renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
       }
     }catch(e){
-      document.getElementById('exit-list').innerHTML=
-        '<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">Exit-Signale werden berechnet…</div>';
+      const el=document.getElementById('exit-list');
+      if(!el.innerHTML.trim())
+        el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">Exit-Signale werden berechnet…</div>';
     }
   });
 }
@@ -1966,14 +1968,13 @@ async function autoRefreshPortfolio() {
 
 // ── Auto-Routinen ─────────────────────────────────────────────────────────────
 setInterval(backupP, 120000);         // Portfolio alle 2 Min sichern
-setInterval(autoRefreshPortfolio, 10*60*1000); // Positionen + Analyse alle 10 Min
+setInterval(autoRefreshPortfolio, 10*60*1000); // Kurse + Portfolio alle 10 Min aktualisieren
 
-// Laufende Analyse pollen + Portfolio aktuell halten
+// Laufende Analyse pollen
 setInterval(()=>{
   if(!document.hidden){
     const btn=document.getElementById('start-btn');
     if(btn&&btn.disabled) loadSignals();
-    if(document.getElementById('page-portfolio').classList.contains('active')) loadPortfolio();
   }
 }, 8000);
 
