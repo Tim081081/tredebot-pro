@@ -442,10 +442,10 @@ except Exception:
 PORTFOLIO_FILE = DB_PATH.replace(".db", "_portfolio.json")
 
 def _sanitize_floats(obj):
-    """Ersetzt NaN/Inf in verschachtelten Dicts/Listen durch None – verhindert JSON-Fehler."""
+    """Ersetzt NaN/Inf in verschachtelten Dicts/Listen durch 0.0 – verhindert JSON- und Rechenfehler."""
     import math
     if isinstance(obj, float):
-        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+        return 0.0 if (math.isnan(obj) or math.isinf(obj)) else obj
     if isinstance(obj, dict):
         return {k: _sanitize_floats(v) for k, v in obj.items()}
     if isinstance(obj, list):
