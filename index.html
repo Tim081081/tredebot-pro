@@ -320,6 +320,8 @@ function showTab(n){
   if(n==='portfolio'||n==='history'){
     loadPortfolio();
     restoreP();
+    // Sofort Kurse + Analyse aktualisieren wenn Portfolio geöffnet wird
+    setTimeout(autoRefreshPortfolio, 500);
   }
   if(n==='watchlist')loadWl(false);
   if(n==='settings')loadSettings();
@@ -1244,17 +1246,12 @@ async function placeMF(i){
 }
 
 // ── Portfolio ─────────────────────────────────────────────────────────────────
-let _portfolioHasData = false;
-
 async function loadPortfolio(){
   return sf('portfolio',async()=>{
     try{
-      const pr=await fetch(`${API}/api/portfolio`,{signal:AbortSignal.timeout(20000)});
-      if(!pr.ok) throw new Error(`HTTP ${pr.status}`);
-      const pd=await pr.json();
-      const s=pd.stats||{};
+      const[pr,er]=await Promise.all([fetch(`${API}/api/portfolio`),fetch(`${API}/api/exit-signals`)]);
+      const pd=await pr.json();const ed=await er.json();const s=pd.stats||{};
       const pnl=s.total_pnl||0;
-      _portfolioHasData = true;
       document.getElementById('p-value').textContent=fmt(s.total_value)+'€';
       const pe=document.getElementById('p-pnl');
       pe.textContent=(pnl>=0?'+':'')+fmt(pnl)+'€';pe.className='sv '+(pnl>=0?'pos':'neg');
@@ -1262,37 +1259,23 @@ async function loadPortfolio(){
       document.getElementById('p-trades').textContent=s.total_trades||0;
       document.getElementById('p-wr').textContent=(s.win_rate||0)+'%';
       document.getElementById('p-fees').textContent=fmt(s.fees_paid||0)+'€';
-      renderLimits(s.limits);
+      renderLimits(s.limits);renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
       const positions=pd.portfolio?.positions||[];
       renderPositions(positions);renderHistory(pd.portfolio?.closed_trades||[]);
 
+      // Fehlende Basiswert-Einstiegspreise automatisch reparieren
       const hasMissingBase=positions.some(p=>p.is_mini_future&&p.base_entry_price==null);
       if(hasMissingBase){
         fetch(`${API}/api/portfolio/fix-base-prices`,{method:'POST'})
           .then(r=>r.json())
-          .then(d=>{if(d.fixed>0)setTimeout(()=>sf('portfolio-reload',()=>loadPortfolio()),1500);})
-          .catch(()=>{});
+          .then(d=>{
+            if(d.fixed>0){
+              // Portfolio neu laden um reparierte Werte anzuzeigen
+              setTimeout(()=>sf('portfolio-reload',()=>loadPortfolio()),1500);
+            }
+          }).catch(()=>{});
       }
-    }catch(e){
-      // Nur "—" zeigen wenn wir noch NIE echte Daten hatten – sonst Anzeige unangetastet lassen
-      if(!_portfolioHasData){
-        document.getElementById('p-value').textContent='—';
-        document.getElementById('p-cash').textContent='—';
-      }
-      console.warn('Portfolio laden fehlgeschlagen:',e);
-    }
-    // Exit-Signale separat laden
-    try{
-      const er=await fetch(`${API}/api/exit-signals`,{signal:AbortSignal.timeout(20000)});
-      if(er.ok){
-        const ed=await er.json();
-        renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
-      }
-    }catch(e){
-      const el=document.getElementById('exit-list');
-      if(!el.innerHTML.trim())
-        el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">Exit-Signale werden berechnet…</div>';
-    }
+    }catch(e){}
   });
 }
 function renderLimits(l){
@@ -1326,22 +1309,17 @@ function renderExitSigs(sigs, minStrength){
       ? `<span style="font-family:monospace;font-weight:700;font-size:11px;color:var(--blue)"> · Stärke ${s.exit_strength}/100</span>`
       : '';
     const col=s.urgency==='urgent'?'var(--red)':'var(--ora)';
-    const priceLabel = s.is_mf
-      ? `Basiswert: ${fmt(s.base_price||s.current_price)}`
-      : `Kurs: ${fmt(s.current_price)}`;
-    // Beim Schließen: bei MF den aktuellen current_price der Position verwenden
-    const closePrice = s.current_price;
     return `<div class="exit-card ${s.urgency}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
           <b style="font-size:13px">${s.name} · ${s.direction}</b>${strHtml}
-          <div style="font-size:10px;color:var(--t3);margin-top:2px">${s.ticker} · Einstieg: ${fmt(s.entry_price)} · ${priceLabel}</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px">${s.ticker} · Einstieg: ${fmt(s.entry_price)}</div>
         </div>
         <span style="color:${s.pnl_pct>=0?'var(--green)':'var(--red)'};font-family:monospace;font-weight:700">${s.pnl_pct>=0?'+':''}${s.pnl_pct}%</span>
       </div>
       ${s.exit_reasons.map(r=>`<div style="font-size:12px;color:${col};margin-bottom:3px">${r}</div>`).join('')}
-      <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${closePrice})">
-        ✕ Position schließen zu ${fmt(closePrice)}€
+      <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${s.current_price})">
+        ✕ Position schließen zu ${fmt(s.current_price)}€
       </button>
     </div>`;
   }).join('');
@@ -1434,6 +1412,11 @@ function renderPositions(positions){
 }
 function renderHistory(trades){
   const c=document.getElementById('history-list');
+  // Realisierte P&L summieren und speichern (für live P&L-Berechnung)
+  const closedPnlSum = trades.reduce((s,t)=>s+(t.pnl||0),0);
+  let cpEl = document.getElementById('p-closed-pnl');
+  if(!cpEl){ cpEl=document.createElement('span'); cpEl.id='p-closed-pnl'; cpEl.style.display='none'; document.body.appendChild(cpEl); }
+  cpEl.dataset.val = closedPnlSum;
   if(!trades.length){c.innerHTML='<div class="empty" style="padding:20px"><div class="ei">📋</div>Noch keine Trades</div>';return;}
   c.innerHTML=[...trades].reverse().map(t=>{
     const pnl=t.pnl||0;
@@ -1497,6 +1480,47 @@ async function updateLivePrices(){
       }
     }catch(e){}
   }
+
+  // Gesamt-P&L live aus den Positionskarten neu summieren
+  try {
+    const cards = document.querySelectorAll('[data-trade-id]');
+    if(cards.length > 0){
+      let livePnl = 0;
+      cards.forEach(card => {
+        const pe = card.querySelector('.pos-pnl');
+        if(pe){
+          const raw = pe.textContent.replace('€','').replace('+','').replace(/\./g,'').replace(',','.');
+          livePnl += parseFloat(raw)||0;
+        }
+      });
+      // Bereits realisierte P&L aus geschlossenen Trades addieren
+      const closedPnlEl = document.getElementById('p-closed-pnl');
+      const closedPnl = closedPnlEl ? parseFloat(closedPnlEl.dataset.val)||0 : 0;
+      const totalLivePnl = Math.round((livePnl + closedPnl) * 100) / 100;
+      const pnlEl = document.getElementById('p-pnl');
+      if(pnlEl){
+        pnlEl.textContent = (totalLivePnl>=0?'+':'')+fmt(totalLivePnl)+'€';
+        pnlEl.className = 'sv '+(totalLivePnl>=0?'pos':'neg');
+      }
+      // Gesamtwert ebenfalls aktualisieren
+      const cashEl = document.getElementById('p-cash');
+      const cash = cashEl ? parseFloat(cashEl.textContent.replace('€','').replace(/\./g,'').replace(',','.').trim())||0 : 0;
+      let openVal = 0;
+      cards.forEach(card => {
+        const cost = parseFloat(card.dataset.cost)||0;
+        const pe = card.querySelector('.pos-pnl');
+        if(pe){
+          const raw = pe.textContent.replace('€','').replace('+','').replace(/\./g,'').replace(',','.');
+          openVal += cost + (parseFloat(raw)||0);
+        }
+      });
+      const totalValEl = document.getElementById('p-value');
+      if(totalValEl && cash > 0){
+        const tv = Math.round((cash + openVal)*100)/100;
+        totalValEl.textContent = fmt(tv)+'€';
+      }
+    }
+  }catch(e){}
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -1968,13 +1992,14 @@ async function autoRefreshPortfolio() {
 
 // ── Auto-Routinen ─────────────────────────────────────────────────────────────
 setInterval(backupP, 120000);         // Portfolio alle 2 Min sichern
-setInterval(autoRefreshPortfolio, 10*60*1000); // Kurse + Portfolio alle 10 Min aktualisieren
+setInterval(autoRefreshPortfolio, 10*60*1000); // Positionen + Analyse alle 10 Min
 
-// Laufende Analyse pollen
+// Laufende Analyse pollen + Portfolio aktuell halten
 setInterval(()=>{
   if(!document.hidden){
     const btn=document.getElementById('start-btn');
     if(btn&&btn.disabled) loadSignals();
+    if(document.getElementById('page-portfolio').classList.contains('active')) loadPortfolio();
   }
 }, 8000);
 
@@ -2017,9 +2042,6 @@ window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(
     }
   }
 })();
-
-// Portfolio sofort laden (auch ohne Tab-Klick)
-loadPortfolio();
 
 // Portfolio sofort wiederherstellen
 restoreP();
