@@ -320,8 +320,6 @@ function showTab(n){
   if(n==='portfolio'||n==='history'){
     loadPortfolio();
     restoreP();
-    // Sofort Kurse + Analyse aktualisieren wenn Portfolio geöffnet wird
-    setTimeout(autoRefreshPortfolio, 500);
   }
   if(n==='watchlist')loadWl(false);
   if(n==='settings')loadSettings();
@@ -1319,6 +1317,10 @@ function renderLimits(l){
 function renderExitSigs(sigs, minStrength){
   const c=document.getElementById('exit-list');
   if(!sigs.length){
+    // Bestehende Exit-Signale NICHT überschreiben – nur leeren wenn wirklich nichts da ist
+    // (verhindert dass ein zweiter schneller Aufruf mit [] das Signal löscht)
+    const hasCards=c.querySelector('.exit-card');
+    if(hasCards) return;
     c.innerHTML=`<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">
       Keine Exit-Signale. Mindest-Signalstärke für Exit: ${minStrength||'—'}/100
     </div>`;
