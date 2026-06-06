@@ -441,8 +441,20 @@ except Exception:
 # ── Portfolio (SQLite-basiert) ────────────────────────────────────────────────
 PORTFOLIO_FILE = DB_PATH.replace(".db", "_portfolio.json")
 
+def _sanitize_floats(obj):
+    """Ersetzt NaN/Inf in verschachtelten Dicts/Listen durch None – verhindert JSON-Fehler."""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(i) for i in obj]
+    return obj
+
 def save_portfolio(p: dict):
     global _portfolio_cache
+    p = _sanitize_floats(p)  # NaN/Inf rausfiltern bevor gespeichert wird
     _portfolio_cache = p
     data = json.dumps(p)
     try:
@@ -1279,13 +1291,20 @@ def refresh_portfolio():
                     pnl = 0.0
                 pos["base_current_price"] = base_price
                 # Simulierten MF-Preis aktualisieren: Einstiegspreis ± Bewegung×Hebel
+                # NaN/Inf sorgfältig abfangen – sonst schlägt JSON-Serialisierung fehl
                 base_entry = pos.get("base_entry_price")
                 if base_entry and base_entry > 0 and pos.get("entry_price"):
-                    delta_pct = (base_price - base_entry) / base_entry
-                    if pos["direction"] == "BUY":
-                        pos["current_price"] = round(pos["entry_price"] * (1 + delta_pct * lev), 4)
-                    else:
-                        pos["current_price"] = round(pos["entry_price"] * (1 - delta_pct * lev), 4)
+                    try:
+                        delta_pct = (base_price - base_entry) / base_entry
+                        if pos["direction"] == "BUY":
+                            new_cp = pos["entry_price"] * (1 + delta_pct * lev)
+                        else:
+                            new_cp = pos["entry_price"] * (1 - delta_pct * lev)
+                        import math
+                        if math.isfinite(new_cp) and new_cp > 0:
+                            pos["current_price"] = round(new_cp, 4)
+                    except Exception:
+                        pass  # current_price bleibt unverändert
             else:
                 # Direkte Position
                 if pos["direction"] == "BUY":
