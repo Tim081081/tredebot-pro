@@ -481,6 +481,7 @@ def load_portfolio() -> dict:
         if row:
             p = json.loads(row["value"])
             if p.get("positions") is not None:
+                p = _sanitize_floats(p)  # NaN/Inf aus DB-Daten bereinigen
                 _portfolio_cache = p
                 return _portfolio_cache
     except Exception: pass
@@ -503,6 +504,12 @@ def load_portfolio() -> dict:
 def invalidate_portfolio_cache():
     global _portfolio_cache
     _portfolio_cache = None
+
+def sanitize_portfolio_cache():
+    """Bereinigt NaN/Inf im in-Memory Cache – wird beim Start aufgerufen."""
+    global _portfolio_cache
+    if _portfolio_cache is not None:
+        _portfolio_cache = _sanitize_floats(_portfolio_cache)
 
 # ── Ticker-Validierung ────────────────────────────────────────────────────────
 def validate_ticker(ticker: str) -> str:
@@ -1227,7 +1234,10 @@ def update_settings(req: SettingsRequest):
 
 @app.get("/api/portfolio")
 def get_portfolio():
-    p=load_portfolio(); cfg=load_settings()
+    p=load_portfolio()
+    # NaN/Inf aus Portfolio bereinigen bevor es serialisiert wird
+    p=_sanitize_floats(p)
+    cfg=load_settings()
     max_pos=cfg["max_positions"]; max_exp=cfg["max_exposure"]; fee=cfg["order_fee"]
     closed=p["closed_trades"]
     open_val=sum(pos.get("current_value",pos["cost"]) for pos in p["positions"])
