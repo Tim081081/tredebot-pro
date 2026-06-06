@@ -939,6 +939,11 @@ def run_analysis(region: str, min_strength: int) -> None:
             "timestamp":      datetime.now().isoformat()
         })
         state_to_save = dict(_state[region])
+    # Speicher freigeben: DataFrame- und Detail-Cache nach Analyse komplett leeren
+    # (Cache hat seinen Zweck während der Analyse erfüllt; danach nur noch Speicherlast)
+    with _df_lock:
+        _df_cache.clear()
+    _detail_cache.clear()
     gc.collect()
     # Ergebnisse dauerhaft in DB speichern (überleben Server-Restarts)
     try:
@@ -1273,6 +1278,14 @@ def refresh_portfolio():
                 else:
                     pnl = 0.0
                 pos["base_current_price"] = base_price
+                # Simulierten MF-Preis aktualisieren: Einstiegspreis ± Bewegung×Hebel
+                base_entry = pos.get("base_entry_price")
+                if base_entry and base_entry > 0 and pos.get("entry_price"):
+                    delta_pct = (base_price - base_entry) / base_entry
+                    if pos["direction"] == "BUY":
+                        pos["current_price"] = round(pos["entry_price"] * (1 + delta_pct * lev), 4)
+                    else:
+                        pos["current_price"] = round(pos["entry_price"] * (1 - delta_pct * lev), 4)
             else:
                 # Direkte Position
                 if pos["direction"] == "BUY":
@@ -1481,33 +1494,55 @@ def _compute_exit_signals() -> dict:
             sl        = pos["stop_loss"]
             tp        = pos["take_profit"]
             direction = pos["direction"]
+            is_mf     = pos.get("is_mini_future", False)
+            lev       = pos.get("leverage", 1)
 
-            # Aktuellen Kurs holen
+            # Aktuellen Basiswert-Kurs holen
             df5 = fetch_ohlcv(base_ticker, period="5d", timeout=8)
             if df5 is None or df5.empty: continue
-            price = round(float(df5["Close"].iloc[-1]), 2)
+            base_price = round(float(df5["Close"].iloc[-1]), 2)
 
-            # P&L und SL/TP-Abstände
-            if direction == "BUY":
-                pp  = (price - entry) / entry * 100
-                sld = (price - sl) / entry * 100
-                tpd = (tp - price) / entry * 100
+            # P&L berechnen – je nach Positions-Typ
+            if is_mf:
+                base_entry = pos.get("base_entry_price")
+                if base_entry and base_entry > 0:
+                    delta_pct = (base_price - base_entry) / base_entry
+                    pnl_abs = delta_pct * lev * pos["cost"] if direction == "BUY" else -delta_pct * lev * pos["cost"]
+                    pp = round(pnl_abs / pos["cost"] * 100, 2) if pos["cost"] > 0 else 0
+                else:
+                    pp = 0.0
+                # SL/TP auf Basiswert-Ebene prüfen
+                price = base_price  # für SL/TP-Vergleich den Basiswert-Kurs verwenden
+                entry_for_sltp = base_entry if (base_entry and base_entry > 0) else entry
             else:
-                pp  = (entry - price) / entry * 100
-                sld = (sl - price) / entry * 100
-                tpd = (price - tp) / entry * 100
+                price = base_price
+                entry_for_sltp = entry
+                if direction == "BUY":
+                    pp = round((price - entry) / entry * 100, 2)
+                else:
+                    pp = round((entry - price) / entry * 100, 2)
+
+            # SL/TP-Abstände berechnen
+            if direction == "BUY":
+                sld = (price - sl) / entry_for_sltp * 100
+                tpd = (tp - price) / entry_for_sltp * 100
+            else:
+                sld = (sl - price) / entry_for_sltp * 100
+                tpd = (price - tp) / entry_for_sltp * 100
 
             # SL/TP-Verletzungen → immer sofort melden
             if tpd <= 0:
                 signals.append({"trade_id":pos["id"],"ticker":base_ticker,"name":pos["name"],
-                    "direction":direction,"entry_price":entry,"current_price":price,
+                    "direction":direction,"entry_price":entry,"current_price":base_price,
+                    "base_price":base_price,"is_mf":is_mf,
                     "pnl_pct":round(pp,2),"stop_loss":sl,"take_profit":tp,
                     "exit_reasons":["✅ Take Profit erreicht!"],"urgency":"urgent",
                     "recommendation":"SCHLIESSEN","exit_strength":None})
                 continue
             if sld <= 0:
                 signals.append({"trade_id":pos["id"],"ticker":base_ticker,"name":pos["name"],
-                    "direction":direction,"entry_price":entry,"current_price":price,
+                    "direction":direction,"entry_price":entry,"current_price":base_price,
+                    "base_price":base_price,"is_mf":is_mf,
                     "pnl_pct":round(pp,2),"stop_loss":sl,"take_profit":tp,
                     "exit_reasons":["🛑 Stop Loss durchbrochen!"],"urgency":"urgent",
                     "recommendation":"SCHLIESSEN","exit_strength":None})
@@ -1547,7 +1582,9 @@ def _compute_exit_signals() -> dict:
                 "name":          pos["name"],
                 "direction":     direction,
                 "entry_price":   entry,
-                "current_price": price,
+                "current_price": base_price,
+                "base_price":    base_price,
+                "is_mf":         is_mf,
                 "pnl_pct":       round(pp, 2),
                 "stop_loss":     sl,
                 "take_profit":   tp,

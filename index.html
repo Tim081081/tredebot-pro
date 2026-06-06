@@ -1249,8 +1249,11 @@ async function placeMF(i){
 async function loadPortfolio(){
   return sf('portfolio',async()=>{
     try{
-      const[pr,er]=await Promise.all([fetch(`${API}/api/portfolio`),fetch(`${API}/api/exit-signals`)]);
-      const pd=await pr.json();const ed=await er.json();const s=pd.stats||{};
+      // Portfolio sofort laden und anzeigen
+      const pr=await fetch(`${API}/api/portfolio`,{signal:AbortSignal.timeout(15000)});
+      if(!pr.ok) throw new Error(`HTTP ${pr.status}`);
+      const pd=await pr.json();
+      const s=pd.stats||{};
       const pnl=s.total_pnl||0;
       document.getElementById('p-value').textContent=fmt(s.total_value)+'€';
       const pe=document.getElementById('p-pnl');
@@ -1259,7 +1262,7 @@ async function loadPortfolio(){
       document.getElementById('p-trades').textContent=s.total_trades||0;
       document.getElementById('p-wr').textContent=(s.win_rate||0)+'%';
       document.getElementById('p-fees').textContent=fmt(s.fees_paid||0)+'€';
-      renderLimits(s.limits);renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
+      renderLimits(s.limits);
       const positions=pd.portfolio?.positions||[];
       renderPositions(positions);renderHistory(pd.portfolio?.closed_trades||[]);
 
@@ -1268,14 +1271,26 @@ async function loadPortfolio(){
       if(hasMissingBase){
         fetch(`${API}/api/portfolio/fix-base-prices`,{method:'POST'})
           .then(r=>r.json())
-          .then(d=>{
-            if(d.fixed>0){
-              // Portfolio neu laden um reparierte Werte anzuzeigen
-              setTimeout(()=>sf('portfolio-reload',()=>loadPortfolio()),1500);
-            }
-          }).catch(()=>{});
+          .then(d=>{if(d.fixed>0)setTimeout(()=>sf('portfolio-reload',()=>loadPortfolio()),1500);})
+          .catch(()=>{});
       }
-    }catch(e){}
+    }catch(e){
+      // Portfolio-Fehler anzeigen statt leer lassen
+      document.getElementById('p-value').textContent='—';
+      document.getElementById('p-cash').textContent='—';
+      console.warn('Portfolio laden fehlgeschlagen:',e);
+    }
+    // Exit-Signale separat laden – Fehler hier blockieren nicht das Portfolio
+    try{
+      const er=await fetch(`${API}/api/exit-signals`,{signal:AbortSignal.timeout(20000)});
+      if(er.ok){
+        const ed=await er.json();
+        renderExitSigs(ed.exit_signals||[], ed.exit_min_strength);
+      }
+    }catch(e){
+      document.getElementById('exit-list').innerHTML=
+        '<div style="font-size:12px;color:var(--t3);padding:4px 0 10px">Exit-Signale werden berechnet…</div>';
+    }
   });
 }
 function renderLimits(l){
@@ -1309,17 +1324,22 @@ function renderExitSigs(sigs, minStrength){
       ? `<span style="font-family:monospace;font-weight:700;font-size:11px;color:var(--blue)"> · Stärke ${s.exit_strength}/100</span>`
       : '';
     const col=s.urgency==='urgent'?'var(--red)':'var(--ora)';
+    const priceLabel = s.is_mf
+      ? `Basiswert: ${fmt(s.base_price||s.current_price)}`
+      : `Kurs: ${fmt(s.current_price)}`;
+    // Beim Schließen: bei MF den aktuellen current_price der Position verwenden
+    const closePrice = s.current_price;
     return `<div class="exit-card ${s.urgency}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
           <b style="font-size:13px">${s.name} · ${s.direction}</b>${strHtml}
-          <div style="font-size:10px;color:var(--t3);margin-top:2px">${s.ticker} · Einstieg: ${fmt(s.entry_price)}</div>
+          <div style="font-size:10px;color:var(--t3);margin-top:2px">${s.ticker} · Einstieg: ${fmt(s.entry_price)} · ${priceLabel}</div>
         </div>
         <span style="color:${s.pnl_pct>=0?'var(--green)':'var(--red)'};font-family:monospace;font-weight:700">${s.pnl_pct>=0?'+':''}${s.pnl_pct}%</span>
       </div>
       ${s.exit_reasons.map(r=>`<div style="font-size:12px;color:${col};margin-bottom:3px">${r}</div>`).join('')}
-      <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${s.current_price})">
-        ✕ Position schließen zu ${fmt(s.current_price)}€
+      <button class="btn btn-sec" style="margin-top:10px" onclick="closeTrade('${s.trade_id}',${closePrice})">
+        ✕ Position schließen zu ${fmt(closePrice)}€
       </button>
     </div>`;
   }).join('');
@@ -1996,6 +2016,9 @@ window.addEventListener('pagehide',()=>{if(window._currentSigs?.length)markSeen(
     }
   }
 })();
+
+// Portfolio sofort laden (auch ohne Tab-Klick)
+loadPortfolio();
 
 // Portfolio sofort wiederherstellen
 restoreP();
