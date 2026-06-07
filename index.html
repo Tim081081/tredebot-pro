@@ -1426,8 +1426,8 @@ function renderPositions(positions){
         <div><div class="pgl">Take Profit</div><div class="pgv pos">${fmt(p.take_profit)}</div></div>
       </div>
       <button class="btn btn-sec" style="margin-top:10px;font-size:12px"
-        onclick="event.stopPropagation();closeTrade('${p.id}',${p.is_mini_future?(p.base_current_price||p.current_price):p.current_price})">
-        Position schließen (${fmt(p.is_mini_future?(p.base_current_price||p.current_price):p.current_price)}€)
+        onclick="event.stopPropagation();closeTrade('${p.id}',${p.current_price})">
+        Position schließen (${fmt(p.current_price)}€)
       </button>
     </div>`;
   }).join('');

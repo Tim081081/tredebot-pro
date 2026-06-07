@@ -1289,13 +1289,17 @@ def refresh_portfolio():
             # Direkt: (Kurs - Einstieg) × Units (kein Hebel in units)
             if is_mf:
                 base_entry = pos.get("base_entry_price")
+                # base_entry_price reparieren falls 0.0 (durch alten NaN-Fix beschädigt)
+                # In diesem Fall: aktuellen Kurs als neuen Einstieg setzen (Verlust/Gewinn = 0 ab jetzt)
+                if not base_entry or base_entry <= 0:
+                    pos["base_entry_price"] = base_price
+                    base_entry = base_price
+                    needs_save = True
                 if base_entry and base_entry > 0:
-                    # Prozentuale Basiswert-Bewegung × Hebel × Kosten
-                    # Bsp: GS -0.1% × 12 × 500€ = -6€ (korrekt)
                     delta_pct = (base_price - base_entry) / base_entry
                     if pos["direction"] == "BUY":
                         pnl = delta_pct * lev * pos["cost"]
-                    else:  # SHORT: Gewinn wenn Basiswert fällt
+                    else:
                         pnl = -delta_pct * lev * pos["cost"]
                 else:
                     pnl = 0.0
@@ -1474,23 +1478,14 @@ def close_trade(req: CloseRequest):
     lev=pos.get("leverage",1)
     is_mf=pos.get("is_mini_future",False)
 
-    if is_mf:
-        # Mini-Future: P&L über prozentuale Basiswert-Bewegung berechnen
-        # close_price ist hier der Basiswert-Kurs (z.B. 453.01€)
-        base_entry=pos.get("base_entry_price") or pos.get("base_current_price")
-        if base_entry and base_entry > 0:
-            delta_pct=(req.close_price - base_entry) / base_entry
-            if pos["direction"]=="BUY":
-                pnl_gross = delta_pct * lev * pos["cost"]
-            else:
-                pnl_gross = -delta_pct * lev * pos["cost"]
-        else:
-            pnl_gross = 0.0
+    # P&L Berechnung: (Schlusskurs - Einstiegskurs) × Anzahl Derivate
+    # Für MF: close_price ist der aktuelle Derivatpreis (current_price)
+    # Für Direktposition: close_price ist der Basiswert-Kurs
+    # Der Hebel ist bereits im Derivatpreis eingepreist – nicht nochmal multiplizieren
+    if pos["direction"] == "BUY":
+        pnl_gross = (req.close_price - pos["entry_price"]) * pos["units"]
     else:
-        # Direktposition: klassische Preisdifferenz-Berechnung
-        pnl_gross=((req.close_price-pos["entry_price"])*pos["units"]*lev
-                   if pos["direction"]=="BUY"
-                   else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
+        pnl_gross = (pos["entry_price"] - req.close_price) * pos["units"]
 
     open_fee  = pos.get("fee", fee)   # beim Öffnen bereits gezahlt
     close_fee = fee                   # jetzt beim Schließen fällig
