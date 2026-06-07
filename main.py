@@ -1472,15 +1472,30 @@ def close_trade(req: CloseRequest):
     pos=next((x for x in p["positions"] if x["id"]==req.trade_id),None)
     if not pos: raise HTTPException(404,"Position nicht gefunden")
     lev=pos.get("leverage",1)
-    pnl_gross=((req.close_price-pos["entry_price"])*pos["units"]*lev
-               if pos["direction"]=="BUY"
-               else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
+    is_mf=pos.get("is_mini_future",False)
+
+    if is_mf:
+        # Mini-Future: P&L über prozentuale Basiswert-Bewegung berechnen
+        # close_price ist hier der Basiswert-Kurs (z.B. 453.01€)
+        base_entry=pos.get("base_entry_price") or pos.get("base_current_price")
+        if base_entry and base_entry > 0:
+            delta_pct=(req.close_price - base_entry) / base_entry
+            if pos["direction"]=="BUY":
+                pnl_gross = delta_pct * lev * pos["cost"]
+            else:
+                pnl_gross = -delta_pct * lev * pos["cost"]
+        else:
+            pnl_gross = 0.0
+    else:
+        # Direktposition: klassische Preisdifferenz-Berechnung
+        pnl_gross=((req.close_price-pos["entry_price"])*pos["units"]*lev
+                   if pos["direction"]=="BUY"
+                   else (pos["entry_price"]-req.close_price)*pos["units"]*lev)
+
     open_fee  = pos.get("fee", fee)   # beim Öffnen bereits gezahlt
     close_fee = fee                   # jetzt beim Schließen fällig
-    total_fees = open_fee + close_fee  # beide zusammen: z.B. 20€
-    # pnl = was nach BEIDEN Gebühren übrig bleibt
-    pnl_net = round(pnl_gross - close_fee, 2)   # nur Schließgebühr subtrahieren
-    # (Öffnungsgebühr wurde bereits beim open_trade vom Cash abgezogen)
+    total_fees = open_fee + close_fee
+    pnl_net = round(pnl_gross - close_fee, 2)
     proceeds = round(pos["cost"] + pnl_net, 2)
     closed={**pos,
             "close_price":  req.close_price,
