@@ -1478,11 +1478,13 @@ def close_trade(req: CloseRequest):
     lev=pos.get("leverage",1)
     is_mf=pos.get("is_mini_future",False)
 
-    # P&L Berechnung: (Schlusskurs - Einstiegskurs) × Anzahl Derivate
-    # Für MF: close_price ist der aktuelle Derivatpreis (current_price)
-    # Für Direktposition: close_price ist der Basiswert-Kurs
-    # Der Hebel ist bereits im Derivatpreis eingepreist – nicht nochmal multiplizieren
-    if pos["direction"] == "BUY":
+    # P&L Berechnung für MF: immer (Schlusskurs - Einstiegskurs) × Anzahl Derivate
+    # BUY-MF:   Derivatpreis steigt wenn Basiswert steigt  → Gewinn wenn close > entry
+    # SHORT-MF: Derivatpreis steigt wenn Basiswert fällt   → Gewinn wenn close > entry
+    # Beide Richtungen verwenden dieselbe Formel – das Vorzeichen ist bereits im Derivatpreis eingebaut
+    if is_mf:
+        pnl_gross = (req.close_price - pos["entry_price"]) * pos["units"]
+    elif pos["direction"] == "BUY":
         pnl_gross = (req.close_price - pos["entry_price"]) * pos["units"]
     else:
         pnl_gross = (pos["entry_price"] - req.close_price) * pos["units"]
