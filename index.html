@@ -237,6 +237,11 @@ input[type=range]{width:100%;accent-color:var(--blue)}
     <div class="sc"><div class="sv neg" id="p-fees">—</div><div class="sl">Gebühren</div></div>
   </div>
   <div id="portfolio-limits"></div>
+  <div style="padding:8px 0 4px">
+    <button class="btn" id="portfolio-refresh-btn" onclick="manualPortfolioRefresh()" style="width:100%;font-size:13px">
+      🔄 Kurse & P&L aktualisieren
+    </button>
+  </div>
   <div class="sec">🚨 Exit-Signale</div><div id="exit-list"></div>
   <div class="sec">Offene Positionen</div><div id="positions-list"></div>
 </div>
@@ -2004,12 +2009,29 @@ async function autoRefreshPortfolio() {
   try {
     const r = await fetch(`${API}/api/portfolio/refresh`, {method:'POST', signal:AbortSignal.timeout(60000)});
     if(r.ok) {
-      const d = await r.json();
-      // Immer UI aktualisieren (auch wenn updated=0, damit Anzeige stimmt)
       loadPortfolio();
       backupP();
     }
   } catch(e) {}
+}
+
+async function manualPortfolioRefresh() {
+  const btn = document.getElementById('portfolio-refresh-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Wird aktualisiert…'; }
+  try {
+    const r = await fetch(`${API}/api/portfolio/refresh`, {method:'POST', signal:AbortSignal.timeout(60000)});
+    if(r.ok){
+      await loadPortfolio();
+      backupP();
+      if(btn){ btn.textContent='✅ Aktualisiert'; }
+    } else {
+      if(btn){ btn.textContent='❌ Fehler – erneut versuchen'; }
+    }
+  } catch(e) {
+    if(btn){ btn.textContent='❌ Fehler – erneut versuchen'; }
+  } finally {
+    setTimeout(()=>{ if(btn){ btn.disabled=false; btn.textContent='🔄 Kurse & P&L aktualisieren'; }}, 3000);
+  }
 }
 
 // ── Auto-Routinen ─────────────────────────────────────────────────────────────
